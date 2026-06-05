@@ -59,6 +59,47 @@ html, body {
   padding: 16px;
   border-bottom: 1px solid var(--border);
 }
+
+.runtime-status {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.runtime-status .rs-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  color: var(--text-secondary);
+}
+.runtime-status .rs-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f0a000;
+  display: inline-block;
+  flex: 0 0 8px;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.runtime-status .rs-row.ready .rs-dot {
+  background: #2ecc71;
+  animation: none;
+}
+.runtime-status .rs-row.failed .rs-dot {
+  background: #e74c3c;
+  animation: none;
+}
+.runtime-status .rs-label {
+  flex: 1;
+  font-weight: 500;
+}
+.runtime-status .rs-state {
+  font-size: 11px;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
 .progress-label {
   display: flex;
   justify-content: space-between;

@@ -17,6 +17,26 @@
   const completedLessons = new Set(JSON.parse(localStorage.getItem("ds_completed_lessons") || "[]"));
   const solvedExercises = new Set(JSON.parse(localStorage.getItem("ds_solved_exercises") || "[]"));
 
+  // Runtime status indicator (sidebar)
+  function setRuntimeStatus(engine, state) {
+    const row = document.querySelector(`.runtime-status .rs-row[data-engine="${engine}"]`);
+    if (!row) return;
+    const stateEl = row.querySelector(".rs-state");
+    row.classList.remove("ready", "failed", "loading");
+    if (state === "ready") {
+      row.classList.add("ready");
+      stateEl.textContent = "✓ готов";
+    } else if (state === "failed") {
+      row.classList.add("failed");
+      stateEl.textContent = "✗ недоступен";
+    } else {
+      row.classList.add("loading");
+      stateEl.textContent = "⏳ загрузка";
+    }
+  }
+  setRuntimeStatus("py", "loading");
+  setRuntimeStatus("sql", "loading");
+
   // ============================================================================
   // Утилиты
   // ============================================================================
@@ -508,6 +528,21 @@
           }
         } else {
           if (!window.PythonSandbox) { output.textContent = "Python sandbox не загружен"; return; }
+          // Если код импортирует matplotlib — заранее показываем прогресс
+          const code = editor.value;
+          const needsMpl = /^\s*(import\s+matplotlib|from\s+matplotlib)/m.test(code) ||
+                           /^\s*(import\s+numpy|from\s+numpy)/m.test(code);
+          let progressTimer = null;
+          if (needsMpl) {
+            let s = 0;
+            progressTimer = setInterval(() => {
+              s += 2;
+              output.textContent = `⏳ Загружаю matplotlib... (${s}с, нужно при первом запуске)`;
+            }, 2000);
+          }
+          const r = await window.PythonSandbox.runCode(code);
+          if (progressTimer) clearInterval(progressTimer);
+          if (!window.PythonSandbox) { output.textContent = "Python sandbox не загружен"; return; }
           const r = await window.PythonSandbox.runCode(editor.value);
           if (r.stderr) {
             output.className = "output-area error";
@@ -553,7 +588,20 @@
             }
           } else {
             const tests = parseJsonField(ex.test_cases_json);
-            const result = await window.PythonSandbox.runAndCheck(editor.value, tests);
+            // Прогресс для matplotlib при первом запуске
+            const checkCode = editor.value;
+            const checkNeedsMpl = /^\s*(import\s+matplotlib|from\s+matplotlib)/m.test(checkCode) ||
+                                  /^\s*(import\s+numpy|from\s+numpy)/m.test(checkCode);
+            let checkProgressTimer = null;
+            if (checkNeedsMpl) {
+              let cs = 0;
+              checkProgressTimer = setInterval(() => {
+                cs += 2;
+                output.textContent = `⏳ Загружаю matplotlib... (${cs}с, нужно при первом запуске)`;
+              }, 2000);
+            }
+            const result = await window.PythonSandbox.runAndCheck(checkCode, tests);
+            if (checkProgressTimer) clearInterval(checkProgressTimer);
             if (result.error) {
               output.className = "output-area error";
               output.textContent = "❌ Ошибка: " + result.error;
@@ -976,9 +1024,23 @@
       $("#main").innerHTML = `<div class="card"><h2>Ошибка загрузки</h2><p>${escapeHtml(e.message)}</p></div>`;
       return;
     }
-    // Preload sandboxes
+    // Preload sandboxes (в фоне, не блокируем первую отрисовку)
     if (window.PythonSandbox) {
-      window.PythonSandbox.ensurePyodide().catch(() => {});
+      window.PythonSandbox.ensurePyodide()
+        .then(() => {
+          const eng = window.PythonSandbox.engine;
+          setRuntimeStatus("py", eng === "mock" ? "failed" : "ready");
+        })
+        .catch(() => setRuntimeStatus("py", "failed"));
+    } else {
+      setRuntimeStatus("py", "failed");
+    }
+    if (window.SqlSandbox) {
+      window.SqlSandbox.ensureSqlJs()
+        .then(() => setRuntimeStatus("sql", "ready"))
+        .catch(() => setRuntimeStatus("sql", "failed"));
+    } else {
+      setRuntimeStatus("sql", "failed");
     }
     await route();
   }

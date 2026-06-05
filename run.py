@@ -1,7 +1,7 @@
 """
 Единственная точка запуска курса.
-Проверяет зависимости, инициализирует БД, скачивает vendor-файлы,
-запускает FastAPI-сервер и открывает браузер.
+Запускает FastAPI-сервер сразу, а скачивание vendor-файлов делает
+в фоне (на повторных запусках — мгновенно, без проверок).
 """
 import os
 import sys
@@ -9,6 +9,8 @@ import subprocess
 import webbrowser
 import threading
 import time
+import json
+import shutil
 from pathlib import Path
 
 # Force UTF-8 stdout/stderr (Windows cp1251 не понимает эмодзи)
@@ -20,6 +22,9 @@ except Exception:
 
 ROOT = Path(__file__).parent.resolve()
 VENDOR = ROOT / "frontend" / "vendor"
+PYODIDE_DIR = VENDOR / "pyodide"
+SQLJS_DIR = VENDOR / "sqljs"
+
 PYODIDE_VERSION = "0.26.2"
 SQLJS_VERSION = "1.10.3"
 
@@ -30,13 +35,11 @@ PYODIDE_FILES = [
     f"https://cdn.jsdelivr.net/pyodide/v{PYODIDE_VERSION}/full/python_stdlib.zip",
     f"https://cdn.jsdelivr.net/pyodide/v{PYODIDE_VERSION}/full/pyodide-lock.json",
 ]
-# Пакеты (whl) качаются отдельно — иначе loadPackage() в браузере
-# будет пытаться скачать их с CDN, что не работает в полностью оффлайн режиме.
-# Сюда можно добавить любой пакет из pyodide-lock.json.
+
+# Пакеты (whl) для оффлайн-работы. Без них matplotlib/sklearn не загрузятся.
 PYODIDE_PACKAGES = [
     "numpy", "pandas", "matplotlib", "matplotlib-pyodide",
-    "scikit-learn", "scipy", "scikit-image",
-    # Зависимости matplotlib/numpy/pandas
+    "scikit-learn", "scipy",
     "pillow", "cycler", "fonttools", "kiwisolver", "packaging",
     "pyparsing", "python-dateutil", "pytz", "six",
     "joblib", "threadpoolctl",
@@ -47,150 +50,188 @@ SQLJS_FILES = [
     f"https://cdnjs.cloudflare.com/ajax/libs/sql.js/{SQLJS_VERSION}/sql-wasm.wasm",
 ]
 
+# Маркер "всё скачано" — если есть, пропускаем ВСЕ проверки vendor
+VENDOR_READY = VENDOR / ".vendor_ready"
+
 
 def info(msg: str) -> None:
-    print(f"\033[36m[ds-course]\033[0m {msg}")
+    print(f"\033[36m[ds-course]\033[0m {msg}", flush=True)
 
 
 def ok(msg: str) -> None:
-    print(f"\033[32m[ds-course]\033[0m {msg}")
+    print(f"\033[32m[ds-course]\033[0m {msg}", flush=True)
 
 
 def warn(msg: str) -> None:
-    print(f"\033[33m[ds-course]\033[0m {msg}")
-
-
-def err(msg: str) -> None:
-    print(f"\033[31m[ds-course]\033[0m {msg}")
+    print(f"\033[33m[ds-course]\033[0m {msg}", flush=True)
 
 
 def ensure_dependencies() -> None:
     """Устанавливает зависимости из requirements.txt, если их нет."""
-    info("Проверяю зависимости Python...")
     try:
         import fastapi  # noqa
         import uvicorn  # noqa
         import pydantic  # noqa
-        ok("Зависимости уже установлены")
     except ImportError:
-        info("Устанавливаю зависимости (это нужно сделать только один раз)...")
+        info("Устанавливаю зависимости Python (один раз)...")
         subprocess.check_call(
             [sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "--quiet"]
         )
         ok("Зависимости установлены")
 
 
-def download_file(url: str, dest: Path) -> bool:
-    """Скачивает файл, возвращает True если успешно."""
-    if dest.exists() and dest.stat().st_size > 1000:
+def _is_complete(path: Path, min_size: int = 1000) -> bool:
+    """Файл существует и не пустой."""
+    try:
+        return path.exists() and path.stat().st_size >= min_size
+    except OSError:
+        return False
+
+
+def _atomic_download(url: str, dest: Path) -> bool:
+    """Скачивает во временный файл, потом переименовывает. Не оставляет мусор при ошибке."""
+    if _is_complete(dest):
         return True
+    tmp = dest.with_suffix(dest.suffix + ".part")
     try:
         import urllib.request
-        info(f"  → {dest.name} ({url.rsplit('/', 1)[-1]})")
-        urllib.request.urlretrieve(url, dest)
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            with open(tmp, "wb") as f:
+                shutil.copyfileobj(resp, f, 1024 * 64)
+        if tmp.stat().st_size < 100:
+            tmp.unlink(missing_ok=True)
+            return False
+        tmp.replace(dest)
         return True
     except Exception as e:
+        tmp.unlink(missing_ok=True)
         warn(f"  Не удалось скачать {dest.name}: {e}")
         return False
 
 
-def ensure_vendor_files() -> None:
-    """Скачивает Pyodide и sql.js в frontend/vendor/."""
-    VENDOR.mkdir(parents=True, exist_ok=True)
-    pyodide_dir = VENDOR / "pyodide"
-    pyodide_dir.mkdir(parents=True, exist_ok=True)
-    sqljs_dir = VENDOR / "sqljs"
-    sqljs_dir.mkdir(parents=True, exist_ok=True)
+def _gather_wheel_filenames(needed: set) -> dict:
+    """Читает lock.json и возвращает {package_name: file_name}."""
+    lock_path = PYODIDE_DIR / "pyodide-lock.json"
+    if not lock_path.exists():
+        return {}
+    try:
+        with open(lock_path, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+    packages = data.get("packages", {})
+    out = {}
+    for n in needed:
+        p = packages.get(n, {})
+        fn = p.get("file_name")
+        if fn:
+            out[n] = fn
+    return out
 
-    info("Проверяю файлы Pyodide (Python в браузере)...")
+
+def _collect_wheel_deps(package_names: list) -> set:
+    """Рекурсивно собирает имена пакетов + их зависимостей из lock.json."""
+    lock_path = PYODIDE_DIR / "pyodide-lock.json"
+    if not lock_path.exists():
+        return set()
+    try:
+        with open(lock_path, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return set()
+    packages = data.get("packages", {})
+    out: set = set()
+
+    def add(name: str) -> None:
+        if name in out:
+            return
+        out.add(name)
+        for dep in packages.get(name, {}).get("depends", []):
+            add(dep)
+
+    for n in package_names:
+        if n in packages:
+            add(n)
+    return out
+
+
+def _ensure_vendor_sync() -> None:
+    """Синхронная версия — вызывается из фонового потока."""
+    VENDOR.mkdir(parents=True, exist_ok=True)
+    PYODIDE_DIR.mkdir(parents=True, exist_ok=True)
+    SQLJS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 1) Pyodide runtime файлы
     for url in PYODIDE_FILES:
         fname = url.rsplit("/", 1)[-1]
-        download_file(url, pyodide_dir / fname)
+        _atomic_download(url, PYODIDE_DIR / fname)
 
-    # Качаем .whl для нужных пакетов и всех их транзитивных зависимостей
-    # по pyodide-lock.json (с CDN jsdelivr).
-    if not (pyodide_dir / "matplotlib-3.5.2-cp312-cp312-pyodide_2024_0_wasm32.whl").exists():
-        info("Качаю Pyodide-пакеты (numpy, matplotlib, sklearn, ...)...")
-        try:
-            import json
-            import urllib.request
-            lock = pyodide_dir / "pyodide-lock.json"
-            if lock.exists():
-                with open(lock, encoding="utf-8") as f:
-                    lock_data = json.load(f)
-                packages = lock_data.get("packages", {})
+    # 2) Wheel-файлы пакетов
+    needed = _collect_wheel_deps(PYODIDE_PACKAGES)
+    if needed:
+        wheel_files = _gather_wheel_filenames(needed)
+        for name, fname in wheel_files.items():
+            if not fname:
+                continue
+            url = f"https://cdn.jsdelivr.net/pyodide/v{PYODIDE_VERSION}/full/{fname}"
+            _atomic_download(url, PYODIDE_DIR / fname)
 
-                def collect_deps(name: str, out: set) -> None:
-                    if name in out:
-                        return
-                    out.add(name)
-                    for dep in packages.get(name, {}).get("depends", []):
-                        collect_deps(dep, out)
-
-                needed: set = set()
-                for pkg in PYODIDE_PACKAGES:
-                    if pkg in packages:
-                        collect_deps(pkg, needed)
-                    else:
-                        warn(f"  Пакет {pkg} не найден в lock, пропускаю")
-
-                for name in sorted(needed):
-                    fn = packages[name].get("file_name")
-                    if not fn:
-                        continue
-                    dest = pyodide_dir / fn
-                    if dest.exists() and dest.stat().st_size > 1000:
-                        continue
-                    url = f"https://cdn.jsdelivr.net/pyodide/v{PYODIDE_VERSION}/full/{fn}"
-                    info(f"  → {fn}")
-                    try:
-                        urllib.request.urlretrieve(url, dest)
-                    except Exception as e:
-                        warn(f"  Не удалось скачать {fn}: {e}")
-                ok(f"  Пакеты Pyodide готовы ({len(needed)} whl)")
-        except Exception as e:
-            warn(f"  Ошибка при скачивании пакетов: {e}")
-
-    info("Проверяю файлы sql.js (SQLite в браузере)...")
+    # 3) sql.js
     for url in SQLJS_FILES:
         fname = url.rsplit("/", 1)[-1]
-        download_file(url, sqljs_dir / fname)
+        _atomic_download(url, SQLJS_DIR / fname)
 
-    pkgs_file = pyodide_dir / "packages.json"
-    if not pkgs_file.exists():
+    # 4) Помечаем как готов
+    VENDOR_READY.touch()
+
+
+def _vendor_is_fully_ready() -> bool:
+    """Быстрая проверка: все критичные файлы уже на диске."""
+    if not VENDOR_READY.exists():
+        return False
+    # Двойная проверка: маркер мог остаться от старой версии
+    for url in PYODIDE_FILES:
+        fname = url.rsplit("/", 1)[-1]
+        if not _is_complete(PYODIDE_DIR / fname):
+            return False
+    for url in SQLJS_FILES:
+        fname = url.rsplit("/", 1)[-1]
+        if not _is_complete(SQLJS_DIR / fname):
+            return False
+    # Хотя бы один wheel для matplotlib
+    if not list(PYODIDE_DIR.glob("*matplotlib*.whl")):
+        return False
+    return True
+
+
+def ensure_vendor_async() -> None:
+    """Запускает проверку/скачивание vendor в фоне. Не блокирует."""
+    if _vendor_is_fully_ready():
+        return  # моментальный выход — всё уже скачано
+    def _bg():
         try:
-            import urllib.request
-            urllib.request.urlretrieve(
-                f"https://cdn.jsdelivr.net/pyodide/v{PYODIDE_VERSION}/full/packages.json",
-                pkgs_file,
-            )
+            info("Докачиваю vendor-файлы в фоне (один раз)...")
+            _ensure_vendor_sync()
+            ok("Vendor-файлы готовы")
         except Exception as e:
-            warn(f"  Не удалось скачать packages.json: {e}")
-
-    ok("Vendor-файлы готовы")
+            warn(f"Ошибка при докачке vendor: {e}")
+    threading.Thread(target=_bg, daemon=True).start()
 
 
 def ensure_database() -> None:
     """Инициализирует БД при первом запуске."""
-    info("Проверяю базу данных...")
-    from app.database import init_db, DB_PATH
-    if not DB_PATH.exists():
-        init_db()
-        ok(f"База данных создана: {DB_PATH}")
-    else:
-        init_db()  # no-op если уже инициализирована
-        ok("База данных готова")
+    from app.database import init_db
+    init_db()
 
 
-def open_browser_delayed(url: str, delay: float = 1.5) -> None:
+def open_browser_delayed(url: str, delay: float = 1.0) -> None:
     def _open():
         time.sleep(delay)
         try:
             webbrowser.open(url)
         except Exception:
             pass
-    t = threading.Thread(target=_open, daemon=True)
-    t.start()
+    threading.Thread(target=_open, daemon=True).start()
 
 
 def main() -> None:
@@ -198,18 +239,19 @@ def main() -> None:
     info("=" * 60)
     info("  DATA SCIENCE COURSE — Локальный самоучитель")
     info("=" * 60)
-    print()
+    print(flush=True)
 
     ensure_dependencies()
-    ensure_vendor_files()
+    # ВАЖНО: vendor check запускается в фоне, сервер стартует СРАЗУ
+    ensure_vendor_async()
     ensure_database()
 
-    print()
+    print(flush=True)
     ok("=" * 60)
     ok("  ✅ Курс запущен: http://localhost:8000")
     ok("  Остановка: Ctrl+C в этом окне")
     ok("=" * 60)
-    print()
+    print(flush=True)
 
     open_browser_delayed("http://localhost:8000")
 
@@ -218,7 +260,7 @@ def main() -> None:
         "app.main:app",
         host="127.0.0.1",
         port=8000,
-        log_level="info",
+        log_level="warning",  # было info — info логировал каждый запрос, шумно
         reload=False,
     )
 

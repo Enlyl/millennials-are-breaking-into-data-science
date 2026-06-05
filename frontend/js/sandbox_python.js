@@ -179,18 +179,46 @@
 
   let matplotlibLoaded = false;
   let matplotlibLoading = null;
+  let matplotlibFailed = false;
   /**
    * Загружает matplotlib + numpy в Pyodide (для визуализации).
-   * Делается один раз.
+   * Делается один раз. С таймаутом 60s и прогресс-логом.
    */
   async function ensureMatplotlib() {
     if (matplotlibLoaded) return true;
+    if (matplotlibFailed) return false;
     if (matplotlibLoading) return matplotlibLoading;
     matplotlibLoading = (async () => {
       const py = await ensurePyodide();
+      if (!py || py.isMock) {
+        matplotlibFailed = true;
+        log("Matplotlib недоступен в mock-режиме", "error");
+        return false;
+      }
       try {
-        await py.loadPackage(["matplotlib", "numpy"]);
-        // Переключаем backend на AGG (без GUI), настраиваем шрифты
+        log("Загружаю matplotlib... (5-15 сек)", "info");
+
+        // Параллельно слушаем прогресс через динамический логгер
+        const origLog = log;
+        let progressInterval = null;
+        let progressSec = 0;
+        progressInterval = setInterval(() => {
+          progressSec += 2;
+          if (progressSec <= 60) {
+            origLog(`Matplotlib загружается... (${progressSec}с)`, "info");
+          }
+        }, 2000);
+
+        // Таймаут 60 сек
+        const timeout = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Timeout 60s")), 60000)
+        );
+        await Promise.race([
+          py.loadPackage(["matplotlib", "numpy"]),
+          timeout
+        ]);
+        clearInterval(progressInterval);
+
         py.runPython(`
 import matplotlib
 matplotlib.use("AGG")
@@ -199,7 +227,6 @@ import io as _ds_io2
 import base64 as _ds_b64
 
 def _ds_show(*args, **kwargs):
-    """Перехватываем plt.show() — сохраняем все открытые фигуры в base64."""
     import sys as _ds_sys3
     figs = []
     for num in plt.get_fignums():
@@ -217,6 +244,7 @@ plt.show = _ds_show
         log("Matplotlib загружен ✓", "success");
         return true;
       } catch (e) {
+        matplotlibFailed = true;
         log("Matplotlib не загружен: " + e.message, "error");
         return false;
       }
