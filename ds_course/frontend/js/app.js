@@ -185,6 +185,8 @@
         await renderLesson(params[0]);
       } else if (path === "/projects") {
         await renderProjects();
+      } else if (path === "/project") {
+        await renderProject(params[0]);
       } else if (path === "/interview") {
         await renderInterview();
       } else if (path === "/achievements") {
@@ -701,7 +703,7 @@
 
   function renderProjectCard(p) {
     return `
-      <div class="project-card">
+      <a href="#/project/${p.id}" class="project-card" style="text-decoration:none;color:inherit;display:block;">
         <div class="p-title">${escapeHtml(p.title)}</div>
         <div class="p-desc">${escapeHtml(p.description || "")}</div>
         <div class="p-meta">
@@ -709,8 +711,79 @@
           ${p.block_title ? `<span class="badge">${escapeHtml(p.block_title)}</span>` : ""}
           ${p.difficulty ? `<span class="badge">${"⭐".repeat(p.difficulty)}</span>` : ""}
         </div>
-      </div>
+      </a>
     `;
+  }
+
+  async function renderProject(id) {
+    const main = $("#main");
+    main.innerHTML = `<div class="loading"><div class="spinner"></div><p>Загружаю проект...</p></div>`;
+    try {
+      const p = await api(`/projects/${id}`);
+      let datasetStr = "";
+      try {
+        const d = typeof p.dataset_json === "string" ? JSON.parse(p.dataset_json) : p.dataset_json;
+        if (d && Object.keys(d).length > 0) {
+          const summary = Object.keys(d).slice(0, 6).map(k => {
+            const v = d[k];
+            const preview = Array.isArray(v) ? `[массив ${v.length} элементов]` :
+                            typeof v === "object" && v !== null ? `{${Object.keys(v).slice(0,3).join(", ")}...}` :
+                            JSON.stringify(v).slice(0, 60);
+            return `<li><code>${escapeHtml(k)}</code>: ${escapeHtml(preview)}</li>`;
+          }).join("");
+          datasetStr = `
+            <div class="card">
+              <h2>📊 Данные</h2>
+              <p>Структура сгенерированного датасета:</p>
+              <ul>${summary}</ul>
+            </div>
+          `;
+        }
+      } catch (e) {}
+
+      const html = `
+        <div class="view-header">
+          <div class="breadcrumb">
+            <a href="#/">Главная</a> / <a href="#/projects">Проекты</a> / ${escapeHtml(p.title)}
+          </div>
+          <h1>${escapeHtml(p.title)}</h1>
+          <div style="display:flex; gap:12px; margin-top:8px; font-size:13px;">
+            <span class="badge theme-${p.theme}">${p.theme === "space" ? "🚀 Космос" : p.theme === "gaming" ? "🎮 Игры" : "📌 Разное"}</span>
+            <span class="badge">${"⭐".repeat(p.difficulty || 3)}</span>
+            ${p.block_title ? `<span class="badge">${escapeHtml(p.block_title)}</span>` : ""}
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>📋 Описание</h2>
+          <p style="white-space:pre-line; line-height:1.6;">${escapeHtml(p.description || "")}</p>
+        </div>
+
+        ${datasetStr}
+
+        <div class="card">
+          <h2>🚀 Стартовый код</h2>
+          <p style="color: var(--text-secondary); font-size:13px;">Скопируй, доработай, запусти. Метки <code>TODO</code> показывают, что нужно реализовать.</p>
+          <pre style="background:#0a0a1a; padding:14px; border-radius:6px; overflow:auto; max-height:380px;"><code>${escapeHtml(p.template_code || "# (код появится скоро)")}</code></pre>
+        </div>
+
+        <div class="card">
+          <h2>✅ Эталонное решение</h2>
+          <p style="color: var(--text-secondary); font-size:13px;">Сверься с этим решением, если застрял. Постарайся сначала решить сам.</p>
+          <details>
+            <summary style="cursor:pointer; color: var(--accent);">Показать решение</summary>
+            <pre style="background:#0a0a1a; padding:14px; border-radius:6px; overflow:auto; max-height:480px; margin-top:10px;"><code>${escapeHtml(p.solution_code || "# (решение появится скоро)")}</code></pre>
+          </details>
+        </div>
+
+        <div style="margin-top:24px;">
+          <a href="#/projects" class="btn">← Назад к проектам</a>
+        </div>
+      `;
+      main.innerHTML = html;
+    } catch (e) {
+      main.innerHTML = `<div class="card"><h2>Ошибка</h2><p>${escapeHtml(e.message)}</p></div>`;
+    }
   }
 
   async function renderInterview() {

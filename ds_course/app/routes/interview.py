@@ -12,7 +12,7 @@ def list_questions(
     category: str | None = None,
     difficulty: str | None = None,
     is_top: bool | None = None,
-    limit: int = 100,
+    limit: int = 500,
 ) -> list[dict]:
     sql = "SELECT * FROM interview_questions WHERE 1=1"
     params = []

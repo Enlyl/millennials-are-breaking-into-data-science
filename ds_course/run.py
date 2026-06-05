@@ -11,6 +11,13 @@ import threading
 import time
 from pathlib import Path
 
+# Force UTF-8 stdout/stderr (Windows cp1251 не понимает эмодзи)
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 ROOT = Path(__file__).parent.resolve()
 VENDOR = ROOT / "frontend" / "vendor"
 PYODIDE_VERSION = "0.26.2"
