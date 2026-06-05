@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Science Course</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🚀%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+
+<div id="app">
+  <aside id="sidebar">
+    <div class="sidebar-header">
+      <h1>🚀 Data Science</h1>
+      <p class="subtitle">Курс-самоучитель</p>
+    </div>
+
+    <div class="progress-block">
+      <div class="progress-label">
+        <span>Прогресс</span>
+        <span id="progress-pct">0%</span>
+      </div>
+      <div class="progress-bar">
+        <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+      </div>
+    </div>
+
+    <nav id="sidebar-nav">
+      <div class="nav-section">
+        <a href="#/" class="nav-link" data-view="home">🏠 Главная</a>
+        <a href="#/achievements" class="nav-link" data-view="achievements">🏆 Достижения</a>
+      </div>
+      <div id="blocks-nav" class="nav-section">
+        <!-- Блоки и уроки рендерятся JS -->
+      </div>
+      <div class="nav-section">
+        <a href="#/projects" class="nav-link" data-view="projects">📁 Проекты</a>
+        <a href="#/interview" class="nav-link" data-view="interview">💼 Собеседования</a>
+        <a href="#/final" class="nav-link" data-view="final">🎓 Финальный проект</a>
+      </div>
+    </nav>
+  </aside>
+
+  <main id="main">
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <p>Загружаю курс...</p>
+    </div>
+  </main>
+</div>
+
+<!-- Модалка достижений -->
+<div id="achievement-modal" class="modal hidden">
+  <div class="modal-content">
+    <div id="achievement-icon" class="achievement-big-icon">🏆</div>
+    <h2 id="achievement-title">Достижение!</h2>
+    <p id="achievement-desc"></p>
+    <button class="btn btn-primary" onclick="document.getElementById('achievement-modal').classList.add('hidden')">
+      Отлично!
+    </button>
+  </div>
+</div>
+
+<script src="/static/js/sandbox_python.js"></script>
+<script src="/static/js/sandbox_sql.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>

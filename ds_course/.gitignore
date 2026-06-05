@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.venv/
+venv/
+env/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# SQLite DB (создаётся при первом запуске)
+*.db
+*.db-journal
+*.db-wal
+
+# Vendor — скачивается через run.py при первом запуске (~50 МБ)
+frontend/vendor/
+
+# Логи
+*.log
+
+# Временные файлы
+tmp/
+*.tmp
+*.bak
