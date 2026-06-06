@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
 from app.database import init_db
-from app.routes import lessons, progress, projects, interview, achievements
+from app.routes import lessons, progress, projects, interview, achievements, final_project
 
 ROOT = Path(__file__).parent.parent.resolve()
 FRONTEND = ROOT / "frontend"
@@ -37,6 +37,7 @@ app.include_router(progress.router, prefix="/api/progress", tags=["progress"])
 app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
 app.include_router(interview.router, prefix="/api/interview", tags=["interview"])
 app.include_router(achievements.router, prefix="/api/achievements", tags=["achievements"])
+app.include_router(final_project.router, prefix="/api/final-project", tags=["final_project"])
 
 
 # Health

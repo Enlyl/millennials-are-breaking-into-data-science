@@ -542,8 +542,6 @@
           }
           const r = await window.PythonSandbox.runCode(code);
           if (progressTimer) clearInterval(progressTimer);
-          if (!window.PythonSandbox) { output.textContent = "Python sandbox не загружен"; return; }
-          const r = await window.PythonSandbox.runCode(editor.value);
           if (r.stderr) {
             output.className = "output-area error";
             output.textContent = r.stderr || "(нет вывода)";
@@ -934,39 +932,137 @@
         <h1>🎓 Финальный проект</h1>
         <p style="color: var(--text-secondary); margin-top: 4px;">"От данных до решения: полный Data Science цикл"</p>
       </div>
-      <div class="card">
-        <h2>Этапы финального проекта</h2>
-        <ol style="margin: 12px 0 0 24px; line-height: 2;">
-          <li><strong>Бизнес-задача</strong> — формулировка, метрики успеха</li>
-          <li><strong>Данные</strong> — загрузка, первичный осмотр</li>
-          <li><strong>Очистка</strong> — пропуски, выбросы, типы</li>
-          <li><strong>EDA</strong> — гипотезы, инсайты, визуализации</li>
-          <li><strong>Статистика</strong> — проверка гипотез, значимость</li>
-          <li><strong>Feature Engineering</strong> — новые признаки, кодирование</li>
-          <li><strong>Моделирование</strong> — 3+ модели, сравнение</li>
-          <li><strong>Оценка</strong> — метрики, интерпретация, выводы</li>
-          <li><strong>Визуализация</strong> — финальный дашборд</li>
-          <li><strong>Оформление</strong> — README, структура репо</li>
-          <li><strong>Кейс для резюме</strong> — описание для HR</li>
-        </ol>
-      </div>
-      <div class="card">
-        <h2>Выбери тему</h2>
-        <p>Космос (SpaceX данные) или Игры (игровая платформа). Начни с любого блока, где есть нужные навыки.</p>
-        <div class="feature-grid" style="margin-top: 16px;">
-          <a href="#/lesson/1.1" class="feature-card">
+      <div class="card" id="final-theme-chooser">
+        <h2>Выбери тему проекта</h2>
+        <p>Пройди полный цикл Data Science: от бизнес-задачи до ML-модели и отчёта.</p>
+        <div class="feature-grid" style="margin-top: 16px;" id="final-theme-cards">
+          <div class="feature-card" data-theme="space" style="cursor:pointer;">
             <div class="feature-icon">🚀</div>
-            <div class="feature-title">Космос: начни с Python</div>
-            <div class="feature-desc">Блок 1 → 3 → 4 → 6 → 7</div>
-          </a>
-          <a href="#/lesson/2.1" class="feature-card">
+            <div class="feature-title">Космос: анализ миссий NASA</div>
+            <div class="feature-desc">200 миссий, прогноз успеха, дашборд</div>
+          </div>
+          <div class="feature-card" data-theme="gaming" style="cursor:pointer;">
             <div class="feature-icon">🎮</div>
-            <div class="feature-title">Игры: начни с SQL</div>
-            <div class="feature-desc">Блок 2 → 3 → 5 → 7</div>
-          </a>
+            <div class="feature-title">Игры: анализ поведения игроков</div>
+            <div class="feature-desc">200 игроков, прогноз оттока, рекомендации</div>
+          </div>
         </div>
       </div>
+      <div id="final-project-content"></div>
     `;
+    $$("#final-theme-cards .feature-card").forEach(card => {
+      card.addEventListener("click", () => loadFinalProject(card.dataset.theme));
+    });
+  }
+
+  async function loadFinalProject(theme) {
+    const content = $("#final-project-content");
+    const chooser = $("#final-theme-chooser");
+    content.innerHTML = `<div class="loading"><div class="spinner"></div><p>Загружаю проект...</p></div>`;
+    try {
+      const fp = await api("/final-project/" + theme);
+      chooser.style.display = "none";
+      let datasetStr = "";
+      try {
+        const ds = fp.dataset_json || {};
+        const keys = Object.keys(ds).slice(0, 6);
+        if (keys.length > 0) {
+          datasetStr = keys.map(k => {
+            const v = ds[k];
+            const preview = Array.isArray(v) ? `[массив ${v.length} элементов]` :
+                            typeof v === "object" && v !== null ? `{${Object.keys(v).slice(0,3).join(", ")}...}` :
+                            String(v).slice(0, 60);
+            return `<li><code>${escapeHtml(k)}</code>: ${escapeHtml(preview)}</li>`;
+          }).join("");
+          const totalEntries = ds.mission_id ? ds.mission_id.length : ds.player_id ? ds.player_id.length : "200";
+          datasetStr = `
+            <div class="card">
+              <h2>📊 Данные</h2>
+              <p>Датасет содержит <strong>${totalEntries} записей</strong>. Ниже — структура ключевых полей.</p>
+              <ul>${datasetStr}</ul>
+            </div>
+          `;
+        }
+      } catch (e) {}
+
+      const stepsHtml = (fp.steps_json || []).map(s => `
+        <details style="margin: 8px 0;">
+          <summary style="cursor:pointer; color: var(--accent); font-weight:600;">
+            Шаг ${s.step}: ${escapeHtml(s.title)}
+          </summary>
+          <p style="margin: 8px 0 4px 0; line-height:1.5;">${escapeHtml(s.description)}</p>
+          ${s.lessons && s.lessons.length ? `
+            <p style="font-size:13px; color: var(--text-secondary);">
+              📚 Связанные уроки: ${s.lessons.map(l => `<a href="#/lesson/${l}" style="color: var(--accent-space);">${l}</a>`).join(", ")}
+            </p>
+          ` : ""}
+        </details>
+      `).join("");
+
+      content.innerHTML = `
+        <div class="view-header" style="margin-top:24px;">
+          <h1>${escapeHtml(fp.title)}</h1>
+          <div style="display:flex; gap:12px; margin-top:8px; font-size:13px;">
+            <span class="badge" style="background: ${theme === "space" ? "#1a237e" : "#4a148c"}">
+              ${theme === "space" ? "🚀 Космос" : "🎮 Игры"}
+            </span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>📋 Описание</h2>
+          <p style="white-space:pre-line; line-height:1.6;">${escapeHtml(fp.description || "")}</p>
+        </div>
+
+        <div class="card">
+          <h2>📋 Этапы проекта (10 шагов)</h2>
+          <p style="color: var(--text-secondary); font-size:13px; margin-bottom:8px;">
+            Раскрой каждый шаг, чтобы увидеть описание и ссылки на уроки.
+          </p>
+          ${stepsHtml}
+        </div>
+
+        ${datasetStr}
+
+        <div class="card">
+          <h2>🚀 Стартовый код</h2>
+          <p style="color: var(--text-secondary); font-size:13px;">
+            Скопируй код в среду выполнения (например, в урок с Python-песочницей).
+            Метки <code>TODO</code> показывают, что нужно реализовать.
+            Каждый TODO соответствует одному из шагов выше.
+          </p>
+          <pre style="background:#0a0a1a; padding:14px; border-radius:6px; overflow:auto; max-height:480px;"><code>${escapeHtml(fp.template_code || "# (код появится скоро)")}</code></pre>
+        </div>
+
+        <div class="card">
+          <h2>✅ Эталонное решение</h2>
+          <p style="color: var(--text-secondary); font-size:13px;">
+            Сверься с этим решением, если застрял. Постарайся сначала решить сам.
+          </p>
+          <details>
+            <summary style="cursor:pointer; color: var(--accent);">Показать решение</summary>
+            <pre style="background:#0a0a1a; padding:14px; border-radius:6px; overflow:auto; max-height:480px; margin-top:10px;"><code>${escapeHtml(fp.solution_code || "# (решение появится скоро)")}</code></pre>
+          </details>
+        </div>
+
+        <div style="margin-top:24px; display:flex; gap:12px; flex-wrap:wrap;">
+          <button class="btn" id="btn-back-themes">← Выбрать другую тему</button>
+          <a href="#/projects" class="btn">→ К другим проектам</a>
+        </div>
+      `;
+      const backBtn = $("#btn-back-themes");
+      if (backBtn) backBtn.addEventListener("click", backToThemeChooser);
+    } catch (e) {
+      content.innerHTML = `<div class="card"><h2>Ошибка</h2><p>${escapeHtml(e.message)}</p></div>`;
+    }
+  }
+
+  function backToThemeChooser() {
+    const chooser = $("#final-theme-chooser");
+    const content = $("#final-project-content");
+    if (chooser) chooser.style.display = "";
+    if (content) content.innerHTML = "";
+    window.scrollTo(0, 0);
   }
 
   // ============================================================================

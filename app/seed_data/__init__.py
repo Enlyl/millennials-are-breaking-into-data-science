@@ -23,6 +23,7 @@ from app.seed_meta import (
     ACHIEVEMENTS,
     INTERVIEW_QUESTIONS,
 )
+from app.seed_capstone import FINAL_PROJECTS
 
 # Блоки с реальным контентом (1-9). Блок 10 — только interview-вопросы.
 REAL_BLOCKS = {1, 2, 3, 4, 5, 6, 7, 8, 9}
@@ -179,6 +180,20 @@ def _seed_interview_questions(conn) -> None:
         )
 
 
+def _seed_final_projects(conn) -> None:
+    conn.execute("DELETE FROM final_projects")
+    for fp in FINAL_PROJECTS:
+        conn.execute(
+            """INSERT INTO final_projects
+               (theme, title, description, steps_json, dataset_json, template_code, solution_code)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (fp["theme"], fp["title"], fp["description"],
+             json.dumps(fp["steps_json"], ensure_ascii=False),
+             json.dumps(fp["dataset_json"], ensure_ascii=False),
+             fp["template_code"], fp["solution_code"]),
+        )
+
+
 def seed_all(conn) -> None:
     """Главная точка: заполняет всю БД."""
     _seed_blocks(conn)
@@ -187,3 +202,4 @@ def seed_all(conn) -> None:
     _seed_projects(conn)
     _seed_achievements(conn)
     _seed_interview_questions(conn)
+    _seed_final_projects(conn)

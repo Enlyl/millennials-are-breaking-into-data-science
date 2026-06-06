@@ -105,6 +105,17 @@ CREATE TABLE IF NOT EXISTS user_achievements (
     achievement_id INTEGER REFERENCES achievements(id) UNIQUE,
     earned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS final_projects (
+    id INTEGER PRIMARY KEY,
+    theme TEXT NOT NULL CHECK(theme IN ('space', 'gaming')),
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    steps_json TEXT NOT NULL,
+    dataset_json TEXT NOT NULL,
+    template_code TEXT NOT NULL,
+    solution_code TEXT NOT NULL
+);
 """
 
 
