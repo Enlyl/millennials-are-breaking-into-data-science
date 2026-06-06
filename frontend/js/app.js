@@ -17,6 +17,9 @@
   const completedLessons = new Set(JSON.parse(localStorage.getItem("ds_completed_lessons") || "[]"));
   const solvedExercises = new Set(JSON.parse(localStorage.getItem("ds_solved_exercises") || "[]"));
 
+  // Активные интервалы (прогресс-бары), которые нужно чистить при навигации
+  let _activeTimers = [];
+
   // Runtime status indicator (sidebar)
   function setRuntimeStatus(engine, state) {
     const row = document.querySelector(`.runtime-status .rs-row[data-engine="${engine}"]`);
@@ -195,6 +198,10 @@
   }
 
   async function route() {
+    // Очищаем активные таймеры при навигации
+    _activeTimers.forEach(t => clearInterval(t));
+    _activeTimers = [];
+
     const { path, params } = parseHash();
     highlightNav(path);
 
@@ -511,65 +518,83 @@
       });
 
       $("[data-action='run']", exEl).addEventListener("click", async () => {
-        output.className = "output-area info";
-        output.textContent = "⏳ Запускаю...";
-        const plotArea = $("[data-plot]", exEl);
-        if (plotArea) { plotArea.hidden = true; plotArea.innerHTML = ""; }
-        const ex = lesson.exercises.find(e => e.id === exId);
-        if (ex.type === "sql") {
-          if (!window.SqlSandbox) { output.textContent = "SQL sandbox не загружен"; return; }
-          const r = await window.SqlSandbox.executeQuery(editor.value);
-          if (r.error) {
-            output.className = "output-area error";
-            output.textContent = "❌ Ошибка: " + r.error;
+        if (exEl.dataset.busy === "1") return;
+        exEl.dataset.busy = "1";
+        const runBtn = $("[data-action='run']", exEl);
+        const chkBtn = $("[data-action='check']", exEl);
+        runBtn.disabled = true;
+        chkBtn.disabled = true;
+        try {
+          output.className = "output-area info";
+          output.textContent = "⏳ Запускаю...";
+          const plotArea = $("[data-plot]", exEl);
+          if (plotArea) { plotArea.hidden = true; plotArea.innerHTML = ""; }
+          const ex = lesson.exercises.find(e => e.id === exId);
+          if (ex.type === "sql") {
+            if (!window.SqlSandbox) { output.textContent = "SQL sandbox не загружен"; return; }
+            const r = await window.SqlSandbox.executeQuery(editor.value);
+            if (r.error) {
+              output.className = "output-area error";
+              output.textContent = "❌ Ошибка: " + r.error;
+            } else {
+              output.className = "output-area success";
+              output.textContent = formatSqlResult(r);
+            }
           } else {
-            output.className = "output-area success";
-            output.textContent = formatSqlResult(r);
-          }
-        } else {
-          if (!window.PythonSandbox) { output.textContent = "Python sandbox не загружен"; return; }
-          // Если код импортирует matplotlib — заранее показываем прогресс
-          const code = editor.value;
-          const needsMpl = /^\s*(import\s+matplotlib|from\s+matplotlib)/m.test(code) ||
-                           /^\s*(import\s+numpy|from\s+numpy)/m.test(code);
-          let progressTimer = null;
-          if (needsMpl) {
-            let s = 0;
-            progressTimer = setInterval(() => {
-              s += 2;
-              output.textContent = `⏳ Загружаю matplotlib... (${s}с, нужно при первом запуске)`;
-            }, 2000);
-          }
-          const r = await window.PythonSandbox.runCode(code);
-          if (progressTimer) clearInterval(progressTimer);
-          if (r.stderr) {
-            output.className = "output-area error";
-            output.textContent = r.stderr || "(нет вывода)";
-          } else {
-            output.className = "output-area success";
-            output.textContent = r.stdout || "(код выполнен успешно)";
-            if (r.engine === "mock") {
-              output.textContent += "\n\n⚠️ Mock-режим: для полноценной работы установите Pyodide локально.";
+            if (!window.PythonSandbox) { output.textContent = "Python sandbox не загружен"; return; }
+            const code = editor.value;
+            const needsMpl = /^\s*(import\s+matplotlib|from\s+matplotlib)/m.test(code) ||
+                             /^\s*(import\s+numpy|from\s+numpy)/m.test(code);
+            const mplReady = window.PythonSandbox.matplotlibLoaded;
+            let progressTimer = null;
+            if (needsMpl && !mplReady) {
+              let s = 0;
+              progressTimer = setInterval(() => {
+                s += 2;
+                output.textContent = `⏳ Загружаю matplotlib... (${s}с, нужно при первом запуске)`;
+              }, 2000);
+              _activeTimers.push(progressTimer);
+            }
+            const r = await window.PythonSandbox.runCode(code);
+            if (progressTimer) { clearInterval(progressTimer); _activeTimers = _activeTimers.filter(t => t !== progressTimer); }
+            if (r.stderr) {
+              output.className = "output-area error";
+              output.textContent = r.stderr || "(нет вывода)";
+            } else {
+              output.className = "output-area success";
+              output.textContent = r.stdout || "(код выполнен успешно)";
+              if (r.engine === "mock") {
+                output.textContent += "\n\n⚠️ Mock-режим: для полноценной работы установите Pyodide локально.";
+              }
+            }
+            if (r.plots && r.plots.length && plotArea) {
+              plotArea.hidden = false;
+              plotArea.innerHTML = r.plots.map(b64 =>
+                `<img class="plot-img" src="data:image/png;base64,${b64}" alt="plot"/>`
+              ).join("");
             }
           }
-          if (r.plots && r.plots.length && plotArea) {
-            plotArea.hidden = false;
-            plotArea.innerHTML = r.plots.map(b64 =>
-              `<img class="plot-img" src="data:image/png;base64,${b64}" alt="plot"/>`
-            ).join("");
-          }
+        } finally {
+          runBtn.disabled = false;
+          chkBtn.disabled = false;
+          exEl.dataset.busy = "0";
         }
       });
 
       $("[data-action='check']", exEl).addEventListener("click", async () => {
-        output.className = "output-area info";
-        output.textContent = "⏳ Проверяю...";
-        testResults.innerHTML = "";
-        testResults.classList.add("visible");
-        const ex = lesson.exercises.find(e => e.id === exId);
+        if (exEl.dataset.busy === "1") return;
+        exEl.dataset.busy = "1";
+        const runBtn = $("[data-action='run']", exEl);
+        const chkBtn = $("[data-action='check']", exEl);
+        runBtn.disabled = true;
+        chkBtn.disabled = true;
         try {
+          output.className = "output-area info";
+          output.textContent = "⏳ Проверяю...";
+          testResults.innerHTML = "";
+          testResults.classList.add("visible");
+          const ex = lesson.exercises.find(e => e.id === exId);
           if (ex.type === "sql") {
-            const tests = parseJsonField(ex.test_cases_json);
             const result = await window.SqlSandbox.runAndCheck(editor.value, ex.expected_result_json, ex.solution_code);
             if (result.error) {
               output.className = "output-area error";
@@ -586,20 +611,21 @@
             }
           } else {
             const tests = parseJsonField(ex.test_cases_json);
-            // Прогресс для matplotlib при первом запуске
             const checkCode = editor.value;
             const checkNeedsMpl = /^\s*(import\s+matplotlib|from\s+matplotlib)/m.test(checkCode) ||
                                   /^\s*(import\s+numpy|from\s+numpy)/m.test(checkCode);
+            const mplReady = window.PythonSandbox.matplotlibLoaded;
             let checkProgressTimer = null;
-            if (checkNeedsMpl) {
+            if (checkNeedsMpl && !mplReady) {
               let cs = 0;
               checkProgressTimer = setInterval(() => {
                 cs += 2;
                 output.textContent = `⏳ Загружаю matplotlib... (${cs}с, нужно при первом запуске)`;
               }, 2000);
+              _activeTimers.push(checkProgressTimer);
             }
             const result = await window.PythonSandbox.runAndCheck(checkCode, tests);
-            if (checkProgressTimer) clearInterval(checkProgressTimer);
+            if (checkProgressTimer) { clearInterval(checkProgressTimer); _activeTimers = _activeTimers.filter(t => t !== checkProgressTimer); }
             if (result.error) {
               output.className = "output-area error";
               output.textContent = "❌ Ошибка: " + result.error;
@@ -634,6 +660,10 @@
         } catch (e) {
           output.className = "output-area error";
           output.textContent = "❌ " + e.message;
+        } finally {
+          runBtn.disabled = false;
+          chkBtn.disabled = false;
+          exEl.dataset.busy = "0";
         }
       });
 

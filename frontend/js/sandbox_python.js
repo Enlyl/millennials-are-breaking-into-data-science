@@ -205,6 +205,7 @@
         progressInterval = setInterval(() => {
           progressSec += 2;
           if (progressSec <= 60) {
+            if (progressSec <= 60) {
             origLog(`Matplotlib загружается... (${progressSec}с)`, "info");
           }
         }, 2000);
@@ -463,5 +464,6 @@ _captured_err = _ds_captured_stderr.getvalue()
     runAndCheck,
     runAndCheckMock,
     get engine() { return currentEngine; },
+    get matplotlibLoaded() { return matplotlibLoaded; },
   };
 })();
