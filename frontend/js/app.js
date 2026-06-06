@@ -570,7 +570,7 @@
         try {
           if (ex.type === "sql") {
             const tests = parseJsonField(ex.test_cases_json);
-            const result = await window.SqlSandbox.runAndCheck(editor.value, ex.expected_result_json);
+            const result = await window.SqlSandbox.runAndCheck(editor.value, ex.expected_result_json, ex.solution_code);
             if (result.error) {
               output.className = "output-area error";
               output.textContent = "❌ " + result.error;

@@ -153,9 +153,11 @@
   }
 
   /**
-   * Запускает запрос с проверкой expected_result_json.
+   * Запускает запрос с проверкой expected_result_json или solution code.
+   * Если передан solutionCode, выполняет его для получения эталонного результата,
+   * затем сравнивает с результатом студента.
    */
-  async function runAndCheck(query, expectedJson) {
+  async function runAndCheck(query, expectedJson, solutionCode) {
     let expected = null;
     try {
       if (expectedJson) expected = JSON.parse(expectedJson);
@@ -164,12 +166,22 @@
     }
 
     const result = await executeQuery(query);
-    let check = { pass: false, msg: "Нет ожидаемого результата" };
+    let check;
 
     if (expected && expected.rows) {
       check = compareResults(result, expected);
+    } else if (solutionCode && !result.error) {
+      // Выполняем решение, сравниваем результат
+      const solResult = await executeQuery(solutionCode);
+      if (solResult.error) {
+        check = { pass: false, msg: "Ошибка в эталонном решении: " + solResult.error };
+      } else {
+        check = compareResults(result, solResult);
+        if (check.pass) {
+          check.msg = "✅ Результат совпадает с эталоном";
+        }
+      }
     } else {
-      // Если нет expected, считаем успехом отсутствие ошибки
       check = { pass: !result.error, msg: result.error || "Выполнено" };
     }
 

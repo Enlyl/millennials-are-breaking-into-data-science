@@ -24,6 +24,7 @@ from app.seed_meta import (
     INTERVIEW_QUESTIONS,
 )
 from app.seed_capstone import FINAL_PROJECTS
+from app.seed_sql_extra import EXTRA_EXERCISES
 
 # Блоки с реальным контентом (1-9). Блок 10 — только interview-вопросы.
 REAL_BLOCKS = {1, 2, 3, 4, 5, 6, 7, 8, 9}
@@ -74,6 +75,12 @@ def _all_lessons() -> list:
             continue
         if block["lessons_meta"]:
             lessons.extend(_stub_block_lessons(bn, block["lessons_meta"]))
+    # Добавляем дополнительные упражнения для уроков SQL (блок 2)
+    for lesson_data in lessons:
+        ln = lesson_data["number"]
+        extra = EXTRA_EXERCISES.get(ln)
+        if extra:
+            lesson_data["exercises"].extend(extra)
     return lessons
 
 
