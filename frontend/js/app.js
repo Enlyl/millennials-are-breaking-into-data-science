@@ -552,12 +552,24 @@
         </div>
       `).join("");
     } else if (sec.type === "interview_questions") {
-      body = (sec.items || []).map(item => `
-        <div class="interview-item">
-          <div><strong>В:</strong> ${escapeHtml(item.q || "")}</div>
-          <div class="a"><strong>О:</strong> ${escapeHtml(item.a || "")}</div>
-        </div>
-      `).join("");
+      body = (sec.items || []).map(item => {
+        if (typeof item === "string") {
+          // Role-play format: **HR:** ... \n\n **Я:** ...
+          const text = escapeHtml(item);
+          const html = text
+            .replace(/\*\*HR/g, '<strong class="role-hr">🧛 HR')
+            .replace(/\*\*Я/g, '<strong class="role-me">😊 Я')
+            .replace(/\*\*/g, '</strong>')
+            .replace(/\n\n/g, '<br><br>');
+          return `<div class="interview-roleplay">${html}</div>`;
+        }
+        return `
+          <div class="interview-item">
+            <div><strong>В:</strong> ${escapeHtml(item.q || "")}</div>
+            <div class="a"><strong>О:</strong> ${escapeHtml(item.a || "")}</div>
+          </div>
+        `;
+      }).join("");
     } else if (sec.type === "knowledge_checklist") {
       body = (sec.items || []).map((item, i) => `
         <label class="checklist-item">

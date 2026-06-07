@@ -1179,6 +1179,17 @@ html, body {
   margin-top: var(--space-2);
   line-height: 1.5;
 }
+.interview-roleplay {
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--accent);
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-3) 0;
+  font-size: var(--text-base);
+  line-height: 1.7;
+}
+.interview-roleplay .role-hr { color: #f85149; }
+.interview-roleplay .role-me { color: #58a6ff; }
 
 .exercise {
   background: var(--bg-surface);
