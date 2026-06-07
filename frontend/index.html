@@ -12,8 +12,15 @@
 <div id="app">
   <aside id="sidebar">
     <div class="sidebar-header">
-      <h1>🚀 Data Science</h1>
+      <h1><span class="ds-logo">DS</span> Data Science</h1>
       <p class="subtitle">Курс-самоучитель</p>
+    </div>
+
+    <div class="theme-switcher">
+      <button class="theme-btn active" data-theme="dark" title="Тёмная тема">🌙</button>
+      <button class="theme-btn" data-theme="light" title="Светлая тема">☀️</button>
+      <button class="theme-btn" data-theme="nu-metal" title="Nu-metal тема">🤘</button>
+      <button class="theme-btn" data-theme="teenage-engineering" title="Teenage Engineering">▢</button>
     </div>
 
     <div class="progress-block">
@@ -41,37 +48,44 @@
 
     <nav id="sidebar-nav">
       <div class="nav-section">
-        <a href="#/" class="nav-link" data-view="home">🏠 Главная</a>
-        <a href="#/achievements" class="nav-link" data-view="achievements">🏆 Достижения</a>
+        <a href="#/" class="nav-link" data-view="home"><span>🏠</span> Главная</a>
+        <a href="#/achievements" class="nav-link" data-view="achievements"><span>🏆</span> Достижения</a>
       </div>
       <div id="blocks-nav" class="nav-section">
         <!-- Блоки и уроки рендерятся JS -->
       </div>
       <div class="nav-section">
-        <a href="#/projects" class="nav-link" data-view="projects">📁 Проекты</a>
-        <a href="#/interview" class="nav-link" data-view="interview">💼 Собеседования</a>
-        <a href="#/final" class="nav-link" data-view="final">🎓 Финальный проект</a>
+        <a href="#/projects" class="nav-link" data-view="projects"><span>📁</span> Проекты</a>
+        <a href="#/interview" class="nav-link" data-view="interview"><span>💼</span> Собеседования</a>
+        <a href="#/final" class="nav-link" data-view="final"><span>🎓</span> Финальный проект</a>
       </div>
     </nav>
   </aside>
 
-  <main id="main">
-    <div id="loading" class="loading">
+  <!-- Loading splash (пока init не закончит) -->
+  <div id="splash">
+    <div class="splash-inner">
       <div class="spinner"></div>
-      <p>Загружаю курс...</p>
+      <p id="splash-msg">Загружаю курс...</p>
+      <div class="splash-dots"><span></span><span></span><span></span></div>
     </div>
-  </main>
+  </div>
+
+  <button id="sidebar-toggle" class="sidebar-toggle" aria-label="Открыть меню" aria-expanded="false">☰</button>
+  <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+  <div class="guitar-decor" title="nu-metal vibes">🎸</div>
+
+  <main id="main"></main>
 </div>
 
 <!-- Модалка достижений -->
-<div id="achievement-modal" class="modal hidden">
+<div id="achievement-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="achievement-title">
   <div class="modal-content">
     <div id="achievement-icon" class="achievement-big-icon">🏆</div>
     <h2 id="achievement-title">Достижение!</h2>
     <p id="achievement-desc"></p>
-    <button class="btn btn-primary" onclick="document.getElementById('achievement-modal').classList.add('hidden')">
-      Отлично!
-    </button>
+    <button class="btn btn-primary" id="achievement-close">Отлично!</button>
   </div>
 </div>
 

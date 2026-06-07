@@ -40,6 +40,57 @@
   setRuntimeStatus("py", "loading");
   setRuntimeStatus("sql", "loading");
 
+  // Theme switcher
+  const NU_ICONS = {
+    "🚀": "💀", "🏠": "🤘",
+    "🏆": "🎵", "📁": "🛠️", "💼": "📋", "🎓": "🏁",
+  };
+  const NU_BLOCK_ICONS = ["🎧", "🕹️", "🥁", "🎸", "💣", "📼", "🦴", "📻", "🎙️"];
+
+  // Teenage Engineering: minimalist geometric shapes, off-white, black ink
+  const TE_ICONS = {
+    "🚀": "▶", "🏠": "□",
+    "🏆": "★", "📁": "▤", "💼": "▦", "🎓": "◉",
+  };
+  const TE_BLOCK_ICONS = ["■", "▢", "▣", "▤", "▥", "▦", "▧", "▨", "▩"];
+
+  function getThemeIcon(defaultIcon, theme) {
+    if (theme === "nu-metal" && NU_ICONS[defaultIcon]) return NU_ICONS[defaultIcon];
+    if (theme === "teenage-engineering" && TE_ICONS[defaultIcon]) return TE_ICONS[defaultIcon];
+    return defaultIcon;
+  }
+
+  function setTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("ds_theme", theme);
+    document.querySelectorAll(".theme-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.theme === theme);
+    });
+    // Only re-render home page icons (CSS handles nav/sidebar icons)
+    if (location.hash === "#/" || location.hash === "") {
+      renderHome();
+    }
+  }
+  function initTheme() {
+    const saved = localStorage.getItem("ds_theme") || "dark";
+    document.documentElement.setAttribute("data-theme", saved);
+    document.querySelectorAll(".theme-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.theme === saved);
+      b.addEventListener("click", () => setTheme(b.dataset.theme));
+    });
+  }
+
+  // Splash screen
+  const splashMsg = () => document.getElementById("splash-msg");
+  function updateSplash(msg) {
+    const el = splashMsg();
+    if (el) el.textContent = msg;
+  }
+  function hideSplash() {
+    const el = document.getElementById("splash");
+    if (el) el.classList.add("hidden");
+  }
+
   // ============================================================================
   // Утилиты
   // ============================================================================
@@ -123,9 +174,9 @@
       state.achievements = [];
     }
     updateProgressUI();
-    renderSidebar();
-    // Загружаем все уроки для сайдбара в фоне
-    loadAllLessonsForSidebar();
+    // Ждём уроки перед рендером сайдбара — избегаем layout shift
+    await loadAllLessonsForSidebar();
+    renderSidebarFull();
   }
 
   function updateProgressUI() {
@@ -140,31 +191,27 @@
   // Sidebar
   // ============================================================================
   function renderSidebar() {
-    const nav = $("#blocks-nav");
-    if (!nav) return;
-    const themeClass = { space: "theme-space", gaming: "theme-gaming", mixed: "theme-mixed", neutral: "theme-mixed" };
-    if (!state.allLessons) {
-      // Начальный рендер до загрузки уроков — только заголовки блоков
-      let html = "";
-      for (const block of state.blocks) {
-        const theme = themeClass[block.theme] || "theme-mixed";
-        html += `<div class="block-title ${theme}"><span class="block-num">${block.number}</span>${escapeHtml(block.title)}</div>`;
-      }
-      nav.innerHTML = html;
-    } else {
-      renderSidebarFull();
-    }
+    renderSidebarFull();
   }
 
   function renderSidebarFull() {
     const nav = $("#blocks-nav");
     if (!nav) return;
     const themeClass = { space: "theme-space", gaming: "theme-gaming", mixed: "theme-mixed", neutral: "theme-mixed" };
+    const collapsed = new Set(JSON.parse(localStorage.getItem("ds_sidebar_collapsed") || "[]"));
     let html = "";
     for (const block of state.blocks) {
-      const theme = themeClass[block.theme] || "theme-mixed";
-      html += `<div class="block-title ${theme}"><span class="block-num">${block.number}</span>${escapeHtml(block.title)}</div>`;
+      if (block.number === 10) continue;
       const blockLessons = state.allLessons.filter(l => l.block_id === block.id);
+      if (blockLessons.length === 0) continue;
+      const theme = themeClass[block.theme] || "theme-mixed";
+      const isCollapsed = collapsed.has(block.number);
+      html += `<div class="block-wrapper ${isCollapsed ? "collapsed" : ""}" data-block="${block.number}">
+        <div class="block-title ${theme}">
+          <span class="collapse-arrow">${isCollapsed ? "▶" : "▼"}</span>
+          <span class="block-num">${block.number}</span>${escapeHtml(block.title)}
+        </div>
+        <div class="block-lessons">`;
       for (const lesson of blockLessons) {
         const isCompleted = completedLessons.has(lesson.number);
         const status = isCompleted ? "✅" : "○";
@@ -174,8 +221,29 @@
           <span class="lesson-title">${escapeHtml(lesson.title)}</span>
         </a>`;
       }
+      html += `</div></div>`;
     }
     nav.innerHTML = html;
+    // Collapse toggle
+    nav.querySelectorAll(".block-title").forEach(el => {
+      el.addEventListener("click", function(e) {
+        if (e.target.closest(".lesson-link")) return;
+        const wrapper = this.closest(".block-wrapper");
+        if (!wrapper) return;
+        const blockNum = parseInt(wrapper.dataset.block);
+        const arrow = this.querySelector(".collapse-arrow");
+        const wasCollapsed = wrapper.classList.toggle("collapsed");
+        arrow.textContent = wasCollapsed ? "▶" : "▼";
+    const collapsedRaw = localStorage.getItem("ds_sidebar_collapsed");
+    if (!collapsedRaw) {
+      const nums = state.blocks.filter(b => b.number !== 10).map(b => b.number);
+      localStorage.setItem("ds_sidebar_collapsed", JSON.stringify(nums));
+    }
+    const collapsed = new Set(JSON.parse(localStorage.getItem("ds_sidebar_collapsed") || "[]"));
+        if (wasCollapsed) { collapsed.add(blockNum); } else { collapsed.delete(blockNum); }
+        localStorage.setItem("ds_sidebar_collapsed", JSON.stringify([...collapsed]));
+      });
+    });
   }
 
   async function loadAllLessonsForSidebar() {
@@ -243,9 +311,17 @@
   async function renderHome() {
     const main = $("#main");
     if (!main) return;
+    const curTheme = document.documentElement.getAttribute("data-theme") || "dark";
     const themeIcon = { space: "🚀", gaming: "🎮", mixed: "📊", neutral: "📚" };
     const blockCards = (state.blocks || []).filter(b => b.number <= 9).map(b => {
-      const icon = themeIcon[b.theme] || "📚";
+      let icon;
+      if (curTheme === "nu-metal") {
+        icon = NU_BLOCK_ICONS[(b.number - 1) % NU_BLOCK_ICONS.length];
+      } else if (curTheme === "teenage-engineering") {
+        icon = TE_BLOCK_ICONS[(b.number - 1) % TE_BLOCK_ICONS.length];
+      } else {
+        icon = getThemeIcon(themeIcon[b.theme] || "📚", curTheme);
+      }
       const firstLesson = (state.allLessons || []).find(l => l.block_id === b.id);
       const href = firstLesson ? `#/lesson/${firstLesson.number}` : `#/`;
       return `<a href="${href}" class="feature-card">
@@ -256,7 +332,7 @@
     }).join("");
     main.innerHTML = `
       <div class="welcome-card">
-        <h1>🚀 Добро пожаловать в Data Science Course</h1>
+        <h1>${getThemeIcon("🚀", curTheme)} Добро пожаловать в Data Science Course</h1>
         <p>Полный курс-самоучитель: Python, SQL, NumPy, Pandas, Matplotlib, статистика, EDA, ML, Feature Engineering и Production DS.</p>
       </div>
       <div class="stats-grid">
@@ -280,27 +356,48 @@
       <h2 style="margin: 24px 0 16px;">Все блоки курса</h2>
       <div class="feature-grid">${blockCards}
         <a href="#/projects" class="feature-card">
-          <div class="feature-icon">📁</div>
+          <div class="feature-icon">${getThemeIcon("📁", curTheme)}</div>
           <div class="feature-title">Проекты</div>
           <div class="feature-desc">20 практических проектов для портфолио.</div>
         </a>
         <a href="#/interview" class="feature-card">
-          <div class="feature-icon">💼</div>
+          <div class="feature-icon">${getThemeIcon("💼", curTheme)}</div>
           <div class="feature-title">Собеседования</div>
           <div class="feature-desc">База вопросов с ответами для подготовки.</div>
         </a>
         <a href="#/achievements" class="feature-card">
-          <div class="feature-icon">🏆</div>
+          <div class="feature-icon">${getThemeIcon("🏆", curTheme)}</div>
           <div class="feature-title">Достижения</div>
           <div class="feature-desc">10 достижений за прогресс в обучении.</div>
         </a>
         <a href="#/final" class="feature-card">
-          <div class="feature-icon">🎓</div>
+          <div class="feature-icon">${getThemeIcon("🎓", curTheme)}</div>
           <div class="feature-title">Финальный проект</div>
           <div class="feature-desc">Комплексное задание для портфолио.</div>
         </a>
       </div>
     `;
+  }
+
+  function updateMarkCompleteBtn(lessonNum) {
+    const btn = $("#mark-complete");
+    if (!btn) return;
+    const isDone = completedLessons.has(lessonNum);
+    btn.textContent = isDone ? "✓ Выполнено" : "✓ Отметить выполненным";
+    btn.classList.toggle("btn-success", !isDone);
+    btn.classList.toggle("btn-secondary", isDone);
+  }
+
+  function updateSidebarLessonStatus(lessonNum) {
+    const link = document.querySelector(`#blocks-nav .lesson-link[data-lesson="${lessonNum}"]`);
+    if (!link) return;
+    const isDone = completedLessons.has(lessonNum);
+    link.classList.toggle("completed", isDone);
+    const status = link.querySelector(".lesson-status");
+    if (status) {
+      status.textContent = isDone ? "✅" : "○";
+      status.className = isDone ? "lesson-status completed" : "lesson-status available";
+    }
   }
 
   async function renderLesson(number) {
@@ -357,12 +454,14 @@
 
       // Bind section toggles
       $$(".section-header").forEach(h => {
-        h.addEventListener("click", () => {
+        const toggle = () => {
           const body = h.nextElementSibling;
-          const toggle = h.querySelector(".section-toggle");
+          const t = h.querySelector(".section-toggle");
           body.classList.toggle("collapsed");
-          toggle.classList.toggle("open");
-        });
+          t.classList.toggle("open");
+        };
+        h.addEventListener("click", toggle);
+        h.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
       });
 
       // Bind mark complete
@@ -382,9 +481,11 @@
             score: 100,
           }),
         }).catch(() => {});
-        renderLesson(lesson.number);
+        // Targeted update instead of full re-render
+        updateMarkCompleteBtn(lesson.number);
         updateProgressUI();
-        loadAllLessonsForSidebar();
+        // Sidebar lesson status update in-place
+        updateSidebarLessonStatus(lesson.number);
       });
 
       // Bind exercises
@@ -396,8 +497,20 @@
   }
 
   function renderSection(sec, id, open = true) {
-    const icons = { theory: "📖", analogy: "🌌", example: "💡", visual: "🎨", common_mistakes: "⚠️", interview_questions: "🎯", knowledge_checklist: "✅" };
-    const titles = { theory: "Теория", analogy: "Аналогия", example: "Пример", visual: "Визуализация", common_mistakes: "Типовые ошибки", interview_questions: "Вопросы собеседований", knowledge_checklist: "Чеклист знаний" };
+    const icons = {
+      theory: "📖", analogy: "🌌", example: "💡", visual: "🎨",
+      common_mistakes: "⚠️", interview_questions: "🎯", knowledge_checklist: "✅",
+      learning_objectives: "🎯", summary: "📌", glossary: "📚",
+      further_reading: "🔗", prerequisites: "📋"
+    };
+    const titles = {
+      theory: "Теория", analogy: "Аналогия", example: "Пример", visual: "Визуализация",
+      common_mistakes: "Типовые ошибки", interview_questions: "Вопросы собеседований",
+      knowledge_checklist: "Чеклист знаний",
+      learning_objectives: "Цели урока", summary: "Ключевые выводы",
+      glossary: "Глоссарий", further_reading: "Дополнительные материалы",
+      prerequisites: "Что нужно знать"
+    };
     const icon = icons[sec.type] || "📌";
     const title = titles[sec.type] || sec.type;
 
@@ -451,11 +564,67 @@
           <input type="checkbox" data-cl="${i}"> ${escapeHtml(item)}
         </label>
       `).join("");
+    } else if (sec.type === "learning_objectives") {
+      body = `
+        <div class="objectives-box">
+          <p style="margin-bottom: var(--space-3); color: var(--text-secondary); font-size: var(--text-sm);">
+            🎯 После этого урока ты сможешь:
+          </p>
+          <ul class="objectives-list">
+            ${(sec.items || []).map(item => `<li>${escapeHtml(item)}</li>`).join("")}
+          </ul>
+        </div>
+      `;
+    } else if (sec.type === "summary") {
+      body = `
+        <div class="summary-box">
+          <ul class="summary-list">
+            ${(sec.items || []).map(item => `<li>${escapeHtml(item)}</li>`).join("")}
+          </ul>
+        </div>
+      `;
+    } else if (sec.type === "glossary") {
+      body = `
+        <div class="glossary-box">
+          ${(sec.items || []).map(item => `
+            <div class="glossary-item">
+              <div class="glossary-term">${escapeHtml(item.term || "")}</div>
+              <div class="glossary-definition">${escapeHtml(item.definition || "")}</div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    } else if (sec.type === "further_reading") {
+      body = `
+        <div class="further-reading-box">
+          <ul class="further-reading-list">
+            ${(sec.items || []).map(item => `
+              <li>
+                <a href="${escapeHtml(item.url || "#")}" target="_blank" rel="noopener noreferrer">
+                  ${escapeHtml(item.title || item.url || "")}
+                </a>
+                ${item.description ? `<div class="fr-desc">${escapeHtml(item.description)}</div>` : ""}
+              </li>
+            `).join("")}
+          </ul>
+        </div>
+      `;
+    } else if (sec.type === "prerequisites") {
+      body = `
+        <div class="prerequisites-box">
+          <p style="color: var(--text-secondary); margin-bottom: var(--space-3);">
+            📋 Перед изучением этого урока рекомендуется пройти:
+          </p>
+          <ul class="prerequisites-list">
+            ${(sec.items || []).map(item => `<li>${escapeHtml(item)}</li>`).join("")}
+          </ul>
+        </div>
+      `;
     }
 
     return `
       <div class="lesson-section" data-section-type="${sec.type}">
-        <div class="section-header" data-toggle="${id}">
+        <div class="section-header" data-toggle="${id}" tabindex="0" role="button">
           <span class="section-icon">${icon}</span>
           <span class="section-title">${title}</span>
           <span class="section-toggle ${open ? "open" : ""}">▶</span>
@@ -684,6 +853,7 @@
       });
 
       $("[data-action='reset']", exEl).addEventListener("click", () => {
+        if (!confirm("Сбросить код упражнения? Результат не сохранится.")) return;
         const ex = lesson.exercises.find(e => e.id === exId);
         editor.value = ex.starter_code || "";
         output.className = "output-area info";
@@ -889,7 +1059,7 @@
         if (top) filtered = filtered.filter(q => q.is_top);
         const list = $("#interview-list");
         list.innerHTML = filtered.map(q => `
-          <div class="interview-card">
+          <div class="interview-card" data-q="${escapeHtml(q.question)}">
             <div class="q">${escapeHtml(q.question)}</div>
             <div class="a">${escapeHtml(q.answer)}</div>
             ${q.explanation ? `<div class="explanation">💡 ${escapeHtml(q.explanation)}</div>` : ""}
@@ -906,20 +1076,19 @@
 
       $$("#interview-filters .filter-btn").forEach(btn => {
         btn.addEventListener("click", () => {
-          if (btn.dataset.action === "random") {
-            const q = all[Math.floor(Math.random() * all.length)];
-            $("#interview-list").innerHTML = `
-              <div class="interview-card">
-                <div class="q">${escapeHtml(q.question)}</div>
-                <details>
-                  <summary style="cursor:pointer; color: var(--accent-space); margin: 8px 0;">Показать ответ</summary>
-                  <div class="a">${escapeHtml(q.answer)}</div>
-                  ${q.explanation ? `<div class="explanation">💡 ${escapeHtml(q.explanation)}</div>` : ""}
-                </details>
-              </div>
-            `;
-            return;
-          }
+        if (btn.dataset.action === "random") {
+          const q = all[Math.floor(Math.random() * all.length)];
+          showQuestions("all", false);
+          setTimeout(() => {
+            const card = document.querySelector(`.interview-card[data-q="${escapeHtml(q.question)}"]`);
+            if (card) {
+              card.scrollIntoView({ behavior: "smooth", block: "center" });
+              card.style.boxShadow = "0 0 0 2px var(--accent-ds)";
+              setTimeout(() => card.style.boxShadow = "", 3000);
+            }
+          }, 0);
+          return;
+        }
           $$("#interview-filters .filter-btn").forEach(b => b.classList.remove("active"));
           btn.classList.add("active");
           showQuestions(btn.dataset.cat || "all", btn.dataset.top === "1");
@@ -1098,7 +1267,11 @@
   // ============================================================================
   // Достижения
   // ============================================================================
+  let _achCheckPending = false;
   function checkAchievements() {
+    if (_achCheckPending) return;
+    _achCheckPending = true;
+    setTimeout(() => { _achCheckPending = false; }, 1000);
     // first_lesson
     if (completedLessons.size >= 1) earnAch("first_lesson");
     // python_master
@@ -1135,7 +1308,7 @@
     $("#achievement-icon").textContent = ach.icon || "🏆";
     $("#achievement-title").textContent = "Получено: " + ach.title;
     $("#achievement-desc").textContent = ach.description || "";
-    $("#achievement-modal").classList.remove("hidden");
+    openModal();
   }
 
   // ============================================================================
@@ -1144,31 +1317,82 @@
   async function init() {
     window.SandboxLog = (msg, level) => console[level === "error" ? "error" : "log"]("[sandbox]", msg);
     window.addEventListener("hashchange", route);
+
+    // Тema switcher
+    initTheme();
+
+    // Sidebar toggle (mobile)
+    const toggle = document.getElementById("sidebar-toggle");
+    const sidebar = document.getElementById("sidebar");
+    const overlay = document.getElementById("sidebar-overlay");
+    function closeSidebar() { sidebar?.classList.remove("open"); overlay?.classList.remove("open"); toggle?.setAttribute("aria-expanded", "false"); toggle && (toggle.textContent = "☰"); }
+    function openSidebar() { sidebar?.classList.add("open"); overlay?.classList.add("open"); toggle?.setAttribute("aria-expanded", "true"); toggle && (toggle.textContent = "✕"); }
+    toggle?.addEventListener("click", () => {
+      const isOpen = sidebar?.classList.toggle("open");
+      overlay?.classList.toggle("open", isOpen);
+      toggle.setAttribute("aria-expanded", isOpen);
+      toggle.textContent = isOpen ? "✕" : "☰";
+    });
+    overlay?.addEventListener("click", closeSidebar);
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && sidebar?.classList.contains("open")) closeSidebar(); });
+    // Close sidebar on nav
+    document.addEventListener("click", e => { if (e.target.closest?.(".nav-link, .lesson-link")) closeSidebar(); });
+
+    // Modal accessibility: focus trap, Escape, aria-hidden
+    const modal = document.getElementById("achievement-modal");
+    const modalClose = document.getElementById("achievement-close");
+    let _lastFocused = null;
+    function openModal() {
+      modal.classList.remove("hidden");
+      modal.removeAttribute("aria-hidden");
+      _lastFocused = document.activeElement;
+      modalClose.focus();
+      document.body.style.overflow = "hidden";
+    }
+    function closeModal() {
+      modal.classList.add("hidden");
+      modal.setAttribute("aria-hidden", "true");
+      document.body.style.overflow = "";
+      _lastFocused?.focus();
+    }
+    modalClose?.addEventListener("click", closeModal);
+    modal?.addEventListener("click", e => { if (e.target === modal) closeModal(); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && !modal.classList.contains("hidden")) closeModal(); });
+    // Focus trap
+    modal?.addEventListener("keydown", e => {
+      if (e.key === "Tab") {
+        const focusable = modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    });
+
+    // Запускаем загрузку sandbox-ов ПАРАЛЛЕЛЬНО с загрузкой данных
+    updateSplash("Загружаю Python окружение...");
+    const pyPromise = (window.PythonSandbox?.ensurePyodide() || Promise.resolve(null))
+      .then(() => setRuntimeStatus("py", window.PythonSandbox?.engine === "mock" ? "failed" : "ready"))
+      .catch(() => setRuntimeStatus("py", "failed"));
+
+    const sqlPromise = (window.SqlSandbox?.ensureSqlJs() || Promise.resolve(null))
+      .then(() => setRuntimeStatus("sql", "ready"))
+      .catch(() => setRuntimeStatus("sql", "failed"));
+
+    updateSplash("Загружаю данные курса...");
     try {
       await loadInitial();
     } catch (e) {
       $("#main").innerHTML = `<div class="card"><h2>Ошибка загрузки</h2><p>${escapeHtml(e.message)}</p></div>`;
+      hideSplash();
       return;
     }
-    // Preload sandboxes (в фоне, не блокируем первую отрисовку)
-    if (window.PythonSandbox) {
-      window.PythonSandbox.ensurePyodide()
-        .then(() => {
-          const eng = window.PythonSandbox.engine;
-          setRuntimeStatus("py", eng === "mock" ? "failed" : "ready");
-        })
-        .catch(() => setRuntimeStatus("py", "failed"));
-    } else {
-      setRuntimeStatus("py", "failed");
-    }
-    if (window.SqlSandbox) {
-      window.SqlSandbox.ensureSqlJs()
-        .then(() => setRuntimeStatus("sql", "ready"))
-        .catch(() => setRuntimeStatus("sql", "failed"));
-    } else {
-      setRuntimeStatus("sql", "failed");
-    }
+
+    updateSplash("Подготавливаю интерфейс...");
     await route();
+
+    // Прячем сплеш сразу после отрисовки — sandbox-ы догружаются в фоне
+    hideSplash();
   }
 
   document.addEventListener("DOMContentLoaded", init);

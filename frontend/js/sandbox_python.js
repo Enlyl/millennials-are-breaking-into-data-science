@@ -204,10 +204,7 @@
         let progressSec = 0;
         progressInterval = setInterval(() => {
           progressSec += 2;
-          if (progressSec <= 60) {
-            if (progressSec <= 60) {
-            origLog(`Matplotlib загружается... (${progressSec}с)`, "info");
-          }
+          origLog(`Matplotlib загружается... (${progressSec}с)`, "info");
         }, 2000);
 
         // Таймаут 60 сек

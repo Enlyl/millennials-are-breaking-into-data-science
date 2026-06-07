@@ -246,6 +246,13 @@ def main() -> None:
     ensure_vendor_async()
     ensure_database()
 
+    # Применить миграции (добавление уроков, IQ, capstone, расширение theory)
+    try:
+        from app.migrations import run_migrations
+        run_migrations()
+    except Exception as e:
+        warn(f"Миграция пропущена: {e}")
+
     print(flush=True)
     ok("=" * 60)
     ok("  ✅ Курс запущен: http://localhost:8000")

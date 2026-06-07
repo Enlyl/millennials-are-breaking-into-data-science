@@ -167,7 +167,16 @@ BLOCKS_META: list[dict[str, Any]] = [
         "title": "Подготовка к собеседованиям",
         "description": "280 вопросов по Python, SQL, статистике, ML, DS General. Junior-уровень.",
         "theme": "neutral",
-        "lessons_meta": [],  # Вопросы хранятся в interview_questions
+        "lessons_meta": [
+            "Структура собеседования в Data Science",
+            "Python: основные вопросы на собеседовании",
+            "Python: продвинутые вопросы",
+            "SQL: базовые вопросы",
+            "SQL: продвинутые запросы",
+            "Статистика и теория вероятностей",
+            "Машинное обучение: теория",
+            "DS General и поведенческие вопросы",
+        ],
     },
 ]
 
