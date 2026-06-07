@@ -34,6 +34,7 @@ def run_migrations():
     _expand_thin_lessons(conn)
     _add_bi_tools_mention(conn)
     _add_stakeholder_mention(conn)
+    _fix_quality_issues(conn)
     print("[migrate] Content expansions done.")
 
     conn.close()
@@ -593,6 +594,158 @@ def _add_3rd_capstone(conn):
                 ?, ?, 'template here', 'solution here')""",
               (json.dumps(steps, ensure_ascii=False), json.dumps(dataset, ensure_ascii=False)))
     conn.commit()
+
+def _fix_quality_issues(conn):
+    """
+    Fix lessons with thin glossaries (<3 terms), thin common_mistakes (<2),
+    thin interview_questions (<2).
+    Idempotent — skips lessons that already have sufficient content.
+    """
+    c = conn.cursor()
+    rows = c.execute("SELECT id, number, title, content_json FROM lessons").fetchall()
+
+    glossary_fixes = {
+        "1.1": [
+            {"term": "Переменная (variable)", "definition": "Именованный контейнер для хранения данных — значение можно изменить"},
+            {"term": "Тип данных (data type)", "definition": "Категория значения: int, float, str, bool — определяет, какие операции разрешены"},
+            {"term": "None", "definition": "Специальное значение «ничего» — отсутствие данных, аналог null в других языках"},
+        ],
+        "1.2": [
+            {"term": "Условный оператор (if/elif/else)", "definition": "Конструкция для ветвления кода в зависимости от булева условия"},
+            {"term": "Булево выражение", "definition": "Выражение, результат которого True или False — основа всех условий"},
+            {"term": "Тернарный оператор", "definition": "Однострочный if-else: x if condition else y — для простых присваиваний"},
+        ],
+        "1.6": [
+            {"term": "Ключ (key)", "definition": "Уникальный идентификатор в словаре — неизменяемый тип (str, int, tuple)"},
+            {"term": "Значение (value)", "definition": "Данные, ассоциированные с ключом — может быть любого типа"},
+            {"term": "Хеш-таблица", "definition": "Структура данных, обеспечивающая O(1) доступ по ключу — как устроен dict"},
+        ],
+        "1.8": [
+            {"term": "Иммутабельность (immutability)", "definition": "Строку нельзя изменить на месте — любой метод возвращает новую строку"},
+            {"term": "Метод строки", "definition": "Функция, привязанная к объекту str: .split(), .join(), .strip(), .replace()"},
+            {"term": "Срез (slice)", "definition": "Извлечение подстроки: s[start:stop:step] — start включительно, stop исключительно"},
+        ],
+        "1.9": [
+            {"term": "Контекстный менеджер (with)", "definition": "Гарантирует закрытие файла даже при ошибке — with open() as f:"},
+            {"term": "Режим открытия (mode)", "definition": "r — чтение, w — запись (перезапись), a — добавление, r+ — чтение+запись"},
+            {"term": "Кодировка (encoding)", "definition": "Схема преобразования байтов в символы — UTF-8 стандарт для кроссплатформенности"},
+        ],
+        "1.11": [
+            {"term": "Traceback", "definition": "Трассировка стека вызовов — показывает, где и какое исключение возникло"},
+            {"term": "Блок finally", "definition": "Выполняется всегда — для освобождения ресурсов (закрытие файла, соединения)"},
+            {"term": "Пользовательское исключение", "definition": "Класс, наследующий от Exception — для специфических ошибок предметной области"},
+        ],
+        "1.12": [
+            {"term": "CSV (Comma-Separated Values)", "definition": "Текстовый формат табличных данных — каждая строка файла = строка таблицы, столбцы разделены запятыми"},
+            {"term": "DictReader", "definition": "Класс csv для чтения CSV в словари — заголовки становятся ключами"},
+            {"term": "Аномалия (выброс)", "definition": "Значение, выходящее за нормальный диапазон — требует расследования (ошибка или реальный сигнал)"},
+        ],
+        "2.3": [
+            {"term": "NULL", "definition": "Отсутствие значения — не участвует в агрегации, кроме COUNT(*)"},
+            {"term": "DISTINCT", "definition": "Убирает дубликаты перед агрегацией: COUNT(DISTINCT col) — подсчёт уникальных"},
+            {"term": "Группировка (GROUP BY)", "definition": "Разделение строк на группы для применения агрегатных функций"},
+        ],
+        "2.5": [
+            {"term": "ELSE", "definition": "Значение по умолчанию в CASE WHEN — если ни одно условие не подошло"},
+            {"term": "WHEN … THEN", "definition": "Пара условие-результат — вычисляется по порядку, останавливается на первом True"},
+            {"term": "CASE в GROUP BY", "definition": "CASE можно использовать внутри GROUP BY для кастомной группировки диапазонов"},
+        ],
+        "2.8": [
+            {"term": "Коррелированный подзапрос", "definition": "Подзапрос, ссылающийся на столбцы внешнего запроса — выполняется для каждой строки"},
+            {"term": "EXISTS / NOT EXISTS", "definition": "Проверка существования строк в подзапросе — работает эффективнее IN для больших наборов"},
+            {"term": "Подзапрос в FROM", "definition": "Подзапрос как виртуальная таблица — обязательно требует alias (SELECT * FROM (…) AS t)"},
+        ],
+        "2.9": [
+            {"term": "WITH (CTE)", "definition": "Common Table Expression — именованный временный набор данных в одном запросе"},
+            {"term": "Рекурсивный CTE", "definition": "WITH RECURSIVE — для иерархий (дерево категорий, оргструктура)"},
+            {"term": "Несколько CTE", "definition": "WITH a AS (…), b AS (…) — цепочка CTE, каждый следующий может ссылаться на предыдущий"},
+        ],
+        "2.10": [
+            {"term": "Оконная функция (window function)", "definition": "Функция, вычисляемая над окном строк без сжатия — в отличие от GROUP BY"},
+            {"term": "OVER (ORDER BY …)", "definition": "Определяет порядок строк в окне — для ROW_NUMBER, RANK необходимо"},
+            {"term": "Партиция (PARTITION BY)", "definition": "Разбиение окна на подгруппы — сброс нумерации внутри каждой группы"},
+        ],
+    }
+
+    mistake_fixes = {
+        "2.7": [
+            {"mistake": "FULL JOIN в MySQL/SQLite", "why_bad": "Эти СУБД не поддерживают FULL OUTER JOIN — запрос упадёт с ошибкой",
+             "fix": "LEFT JOIN + RIGHT JOIN через UNION: (LEFT JOIN) UNION (RIGHT JOIN)"},
+            {"mistake": "RIGHT JOIN там, где нужен LEFT", "why_bad": "RIGHT JOIN менее читаем — легче запутаться в направлении",
+             "fix": "Используйте LEFT JOIN, переставив таблицы местами"},
+        ],
+        "2.11": [
+            {"mistake": "Не указывать ORDER BY в OVER", "why_bad": "Оконные функции LAG/LEAD требуют ORDER BY — без него порядок не определён",
+             "fix": "Всегда указывайте ORDER BY внутри OVER для окон по порядку"},
+            {"mistake": "Путать LAG и LEAD", "why_bad": "LAG берёт предыдущую строку, LEAD — следующую. Легко перепутать знак смещения",
+             "fix": "LAG(col, 1) — вверх (прошлое), LEAD(col, 1) — вниз (будущее)"},
+        ],
+        "2.12": [
+            {"mistake": "NTILE(100) для перцентилей", "why_bad": "100 групп — это не перцентиль, а процентильные ранги. PERCENT_RANK точнее",
+             "fix": "Используйте NTILE для K-групп (квартили, децили), PERCENT_RANK для непрерывного ранга"},
+            {"mistake": "NTILE без ORDER BY", "why_bad": "Без сортировки NTILE распределяет строки по группам случайно",
+             "fix": "Всегда указывайте ORDER BY в OVER для NTILE"},
+        ],
+    }
+
+    iq_fixes = {
+        "2.12": [
+            {"q": "Когда NTILE(4) не даст равные группы?",
+             "a": "Когда число строк не делится на 4. Первые N%4 групп получат на 1 строку больше (если остаток 3, первые 3 группы +1 строка)"},
+        ],
+    }
+
+    any_fixed = False
+    for lid, num, title, cj in rows:
+        data = json.loads(cj)
+        sections = data['sections']
+        changed = False
+
+        # Fix glossary (if < 3 items)
+        for s in sections:
+            if s['type'] == 'glossary':
+                items = s.get('items', [])
+                if len(items) < 3:
+                    add_terms = glossary_fixes.get(num, [])
+                    existing_terms = {g['term'] if isinstance(g, dict) else g for g in items}
+                    for term in add_terms:
+                        if term['term'] not in existing_terms:
+                            items.append(term)
+                            existing_terms.add(term['term'])
+                            changed = True
+                break
+
+        # Fix common_mistakes (if < 2 items)
+        for s in sections:
+            if s['type'] == 'common_mistakes':
+                items = s.get('items', [])
+                if len(items) < 2:
+                    add_mistakes = mistake_fixes.get(num, [])
+                    for m in add_mistakes:
+                        if m not in items:
+                            items.append(m)
+                            changed = True
+                break
+
+        # Fix interview_questions (if < 2 items)
+        for s in sections:
+            if s['type'] == 'interview_questions':
+                items = s.get('items', [])
+                if len(items) < 2:
+                    add_iq = iq_fixes.get(num, [])
+                    for q in add_iq:
+                        if q not in items:
+                            items.append(q)
+                            changed = True
+                break
+
+        if changed:
+            c.execute("UPDATE lessons SET content_json=? WHERE id=?", (json.dumps(data, ensure_ascii=False), lid))
+            any_fixed = True
+
+    if any_fixed:
+        conn.commit()
+        print("[migrate] Quality fixes applied.")
 
 if __name__ == "__main__":
     run_migrations()
