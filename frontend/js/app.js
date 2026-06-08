@@ -201,7 +201,7 @@
     const collapsed = new Set(JSON.parse(localStorage.getItem("ds_sidebar_collapsed") || "[]"));
     let html = "";
     for (const block of state.blocks) {
-      if (block.number === 10) continue;
+      //
       const blockLessons = state.allLessons.filter(l => l.block_id === block.id);
       if (blockLessons.length === 0) continue;
       const theme = themeClass[block.theme] || "theme-mixed";
@@ -236,7 +236,7 @@
         arrow.textContent = wasCollapsed ? "▶" : "▼";
     const collapsedRaw = localStorage.getItem("ds_sidebar_collapsed");
     if (!collapsedRaw) {
-      const nums = state.blocks.filter(b => b.number !== 10).map(b => b.number);
+      const nums = state.blocks.map(b => b.number);
       localStorage.setItem("ds_sidebar_collapsed", JSON.stringify(nums));
     }
     const collapsed = new Set(JSON.parse(localStorage.getItem("ds_sidebar_collapsed") || "[]"));
@@ -313,7 +313,7 @@
     if (!main) return;
     const curTheme = document.documentElement.getAttribute("data-theme") || "dark";
     const themeIcon = { space: "🚀", gaming: "🎮", mixed: "📊", neutral: "📚" };
-    const blockCards = (state.blocks || []).filter(b => b.number <= 9).map(b => {
+    const blockCards = (state.blocks || []).map(b => {
       let icon;
       if (curTheme === "nu-metal") {
         icon = NU_BLOCK_ICONS[(b.number - 1) % NU_BLOCK_ICONS.length];
@@ -370,11 +370,6 @@
           <div class="feature-title">Достижения</div>
           <div class="feature-desc">10 достижений за прогресс в обучении.</div>
         </a>
-        <a href="#/final" class="feature-card">
-          <div class="feature-icon">${getThemeIcon("🎓", curTheme)}</div>
-          <div class="feature-title">Финальный проект</div>
-          <div class="feature-desc">Комплексное задание для портфолио.</div>
-        </a>
       </div>
     `;
   }
@@ -410,6 +405,13 @@
     try {
       const lesson = await api(`/lessons/${number}`);
       const content = lesson.content_json || {};
+
+      // Capstone project lessons (11.2, 11.3) — render interactive comic instead of sections
+      if (number === "11.2" || number === "11.3") {
+        renderCapstoneLesson(main, lesson, number);
+        return;
+      }
+
       const sections = content.sections || [];
       const minutes = content.minutes || lesson.estimated_minutes || 45;
 
@@ -501,7 +503,8 @@
       theory: "📖", analogy: "🌌", example: "💡", visual: "🎨",
       common_mistakes: "⚠️", interview_questions: "🎯", knowledge_checklist: "✅",
       learning_objectives: "🎯", summary: "📌", glossary: "📚",
-      further_reading: "🔗", prerequisites: "📋"
+      further_reading: "🔗", prerequisites: "📋",
+      debug_challenge: "🐛", recap_quiz: "🔄", portfolio_readme: "📄"
     };
     const titles = {
       theory: "Теория", analogy: "Аналогия", example: "Пример", visual: "Визуализация",
@@ -509,7 +512,8 @@
       knowledge_checklist: "Чеклист знаний",
       learning_objectives: "Цели урока", summary: "Ключевые выводы",
       glossary: "Глоссарий", further_reading: "Дополнительные материалы",
-      prerequisites: "Что нужно знать"
+      prerequisites: "Что нужно знать",
+      debug_challenge: "Debug Challenge", recap_quiz: "Опрос по прошлому блоку", portfolio_readme: "Шаблон портфолио"
     };
     const icon = icons[sec.type] || "📌";
     const title = titles[sec.type] || sec.type;
@@ -630,6 +634,36 @@
           <ul class="prerequisites-list">
             ${(sec.items || []).map(item => `<li>${escapeHtml(item)}</li>`).join("")}
           </ul>
+        </div>
+      `;
+    } else if (sec.type === "debug_challenge") {
+      body = `
+        <div class="debug-challenge-box">
+          <div class="debug-problem">${escapeHtml(sec.problem || "")}</div>
+          <div class="debug-hint" style="color: var(--warning); font-size: var(--text-sm); margin-bottom: var(--space-2);">💡 Подсказка: ${escapeHtml(sec.hint || "")}</div>
+          <pre><code class="language-python">${escapeHtml(sec.buggy_code || "")}</code></pre>
+          <details style="margin-top: var(--space-2);">
+            <summary style="cursor: pointer; color: var(--accent);">Показать исправление</summary>
+            <div class="debug-fix" style="margin-top: var(--space-2); padding: var(--space-2); background: var(--surface-alt); border-radius: 8px;">
+              <pre><code>${escapeHtml(sec.fix || "")}</code></pre>
+            </div>
+          </details>
+        </div>
+      `;
+    } else if (sec.type === "recap_quiz") {
+      body = `
+        <div class="recap-quiz-box">
+          <p style="margin-bottom: var(--space-3); color: var(--text-secondary);">Проверь себя перед началом блока:</p>
+          <ol style="padding-left: var(--space-4);">
+            ${(sec.items || []).map(item => `<li style="margin-bottom: var(--space-2);">${escapeHtml(item)}</li>`).join("")}
+          </ol>
+        </div>
+      `;
+    } else if (sec.type === "portfolio_readme") {
+      body = `
+        <div class="portfolio-readme-box">
+          <p style="margin-bottom: var(--space-3); color: var(--text-secondary);">Шаблон README для твоего портфолио-проекта:</p>
+          <pre><code>${escapeHtml(sec.content || "")}</code></pre>
         </div>
       `;
     }
@@ -1274,6 +1308,171 @@
     if (chooser) chooser.style.display = "";
     if (content) content.innerHTML = "";
     window.scrollTo(0, 0);
+  }
+
+  // ============================================================================
+  // Capstone Lesson — интерактивный комикс для уроков 11.2 и 11.3
+  // ============================================================================
+  const _capstoneProgress = {};
+
+  async function renderCapstoneLesson(main, lesson, number) {
+    const theme = number === "11.2" ? "space" : "gaming";
+    const themeMeta = {
+      space: { icon: "🚀", title: "Анализ миссий NASA", color: "#1a237e", badge: "ВЫПУСК 1" },
+      gaming: { icon: "🎮", title: "Анализ поведения игроков", color: "#4a148c", badge: "ВЫПУСК 2" },
+    };
+    const meta = themeMeta[theme];
+
+    main.innerHTML = `
+      <div class="view-header">
+        <div class="breadcrumb">
+          <a href="#/">Главная</a> / <a href="#/">Блок 11</a> / Урок ${lesson.number}
+        </div>
+        <h1>${escapeHtml(lesson.title)}</h1>
+      </div>
+      <div class="comic-view" data-theme="${theme}">
+        <div class="comic-header" style="border-bottom: 2px solid ${meta.color};">
+          <div>
+            <span class="comic-badge" style="background: ${meta.color};">${meta.badge}</span>
+            <span class="comic-project-title">${meta.icon} ${meta.title}</span>
+          </div>
+          <div class="comic-progress" id="comic-progress"></div>
+        </div>
+        <div class="comic-loading"><div class="spinner"></div><p>Загружаю проект...</p></div>
+        <div class="comic-stage" id="comic-stage" style="display:none;">
+          <div class="comic-panel" id="comic-panel"></div>
+          <div class="comic-nav" id="comic-nav"></div>
+        </div>
+      </div>
+    `;
+
+    try {
+      const fp = await api("/final-project/" + theme);
+      _capstoneProgress[theme] = _capstoneProgress[theme] || { currentStep: 0, completed: new Set() };
+      const pp = _capstoneProgress[theme];
+      _renderCapstoneStep(fp, pp, theme, meta, main);
+    } catch (e) {
+      const loading = main.querySelector(".comic-loading");
+      if (loading) loading.outerHTML = `<div class="card"><h2>Ошибка загрузки</h2><p>${escapeHtml(e.message)}</p></div>`;
+    }
+  }
+
+  function _renderCapstoneStep(fp, pp, theme, meta, main) {
+    const stage = $(`#comic-stage`);
+    const loading = main.querySelector(".comic-loading");
+    if (loading) loading.style.display = "none";
+    stage.style.display = "block";
+
+    const steps = fp.steps_json || [];
+    const idx = pp.currentStep;
+    const step = steps[idx];
+    if (!step) return;
+
+    const progressHtml = steps.map((s, i) =>
+      `<div class="comic-progress-dot ${i === idx ? 'active' : ''} ${pp.completed.has(i) ? 'done' : ''}" title="Шаг ${i+1}: ${s.title}"></div>`
+    ).join("");
+
+    const bubblesHtml = (step.dialogue || []).map(d => {
+      const isClient = d.speaker === "client";
+      return `
+        <div class="speech-bubble ${isClient ? 'client' : 'me'}">
+          <div class="speech-avatar">${isClient ? '👔' : '😊'}</div>
+          <div class="speech-text">${escapeHtml(d.text)}</div>
+        </div>
+      `;
+    }).join("");
+
+    const taskHtml = step.task ? `
+      <div class="comic-task">
+        <div class="comic-task-label">📋 Задание</div>
+        <div class="comic-task-text">${escapeHtml(step.task)}</div>
+      </div>
+    ` : "";
+
+    const lessonsHtml = (step.lessons || []).length ? `
+      <div class="comic-lessons">
+        <span>📚 Связанные уроки:</span>
+        ${step.lessons.map(l => `<a href="#/lesson/${l}" class="comic-lesson-link">${l}</a>`).join(", ")}
+      </div>
+    ` : "";
+
+    const isDone = pp.completed.has(idx);
+    const completeBtn = `
+      <button class="btn ${isDone ? 'btn-success' : 'btn-primary'} comic-complete-btn"
+        data-step="${idx}">${isDone ? '✓ Шаг выполнен' : '✓ Отметить выполненным'}</button>
+    `;
+
+    const panel = $(`#comic-panel`);
+    panel.innerHTML = `
+      <div class="comic-step-header">Шаг ${idx + 1} / ${steps.length}: ${escapeHtml(step.title)}</div>
+      <div class="comic-bubbles">${bubblesHtml}</div>
+      ${taskHtml}
+      ${lessonsHtml}
+      <div style="margin-top: var(--space-4); text-align: center;">${completeBtn}</div>
+    `;
+
+    const nav = $(`#comic-nav`);
+    nav.innerHTML = `
+      <button class="btn btn-secondary" id="comic-prev" ${idx === 0 ? 'disabled' : ''}>◀ Назад</button>
+      <div class="comic-progress-strip">${progressHtml}</div>
+      <button class="btn btn-primary" id="comic-next">${idx < steps.length - 1 ? 'Вперёд ▶' : '🎉 Завершить'}</button>
+    `;
+
+    const progressEl = $(`#comic-progress`);
+    if (progressEl) progressEl.innerHTML = progressHtml;
+
+    const prevBtn = $(`#comic-prev`);
+    const nextBtn = $(`#comic-next`);
+    const completeBtnEl = panel.querySelector(".comic-complete-btn");
+
+    if (prevBtn) prevBtn.onclick = () => {
+      if (pp.currentStep > 0) { pp.currentStep--; _renderCapstoneStep(fp, pp, theme, meta, main); }
+    };
+    if (nextBtn) nextBtn.onclick = () => {
+      if (idx < steps.length - 1) { pp.currentStep++; _renderCapstoneStep(fp, pp, theme, meta, main); }
+      else { _showCapstoneComplete(theme, meta, main); }
+    };
+    if (completeBtnEl) completeBtnEl.onclick = function() {
+      const sIdx = parseInt(this.dataset.step);
+      if (pp.completed.has(sIdx)) pp.completed.delete(sIdx); else pp.completed.add(sIdx);
+      _renderCapstoneStep(fp, pp, theme, meta, main);
+    };
+  }
+
+  function _showCapstoneComplete(theme, meta, main) {
+    const panel = $(`#comic-panel`);
+    const nav = $(`#comic-nav`);
+    const otherTheme = theme === "space" ? "gaming" : "space";
+    const otherNum = theme === "space" ? "11.3" : "11.2";
+    panel.innerHTML = `
+      <div class="project-complete">
+        <div class="project-complete-icon">🎉</div>
+        <h2>Проект сдан!</h2>
+        <p>Поздравляю! Ты прошёл все 10 шагов проекта «${meta.title}».</p>
+        <div class="project-complete-stats">
+          <div class="project-complete-stat">
+            <span class="stat-number">10</span>
+            <span class="stat-label">Шагов пройдено</span>
+          </div>
+          <div class="project-complete-stat">
+            <span class="stat-number">🚀</span>
+            <span class="stat-label">Готово для портфолио</span>
+          </div>
+        </div>
+        <p style="margin-top: var(--space-4);">
+          Не забудь оформить README — используй шаблон из урока 9.8.
+        </p>
+        <div style="margin-top: var(--space-4); display: flex; gap: var(--space-3); justify-content: center; flex-wrap: wrap;">
+          <a href="#/lesson/${otherNum}" class="btn btn-primary">
+            ${meta.icon === "🚀" ? '🎮 Пройти проект «Игры»' : '🚀 Пройти проект «Космос»'}
+          </a>
+          <a href="#/" class="btn btn-secondary">🏠 На главную</a>
+        </div>
+      </div>
+    `;
+    nav.innerHTML = ``;
+    const progressEl = $(`#comic-progress`);
+    if (progressEl) progressEl.innerHTML = Array(10).fill(0).map(() => `<div class="comic-progress-dot done"></div>`).join("");
   }
 
   // ============================================================================

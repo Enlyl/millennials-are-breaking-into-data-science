@@ -178,6 +178,13 @@ BLOCKS_META: list[dict[str, Any]] = [
             "DS General и поведенческие вопросы",
         ],
     },
+    {
+        "number": 11,
+        "title": "Финальный проект",
+        "description": "Capstone-проекты: Космос (анализ миссий NASA) и Игры (анализ поведения игроков). Полный цикл Data Science.",
+        "theme": "neutral",
+        "lessons_meta": [],
+    },
 ]
 
 

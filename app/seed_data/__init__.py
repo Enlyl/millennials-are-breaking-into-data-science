@@ -26,9 +26,18 @@ from app.seed_meta import (
 )
 from app.seed_capstone import FINAL_PROJECTS
 from app.seed_sql_extra import EXTRA_EXERCISES
+from app.seed_augmented_content import (
+    LESSONS_B1,
+    LESSONS_B5,
+    LESSONS_B7,
+    LESSONS_B8,
+    LESSONS_B9,
+    LESSONS_B10,
+    LESSONS_B11,
+)
 
 # Блоки с реальным контентом (1-10).
-REAL_BLOCKS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+REAL_BLOCKS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
 
 
 def _stub_lesson(block_num: int, lesson_num: str, title: str) -> dict:
@@ -66,7 +75,8 @@ def _stub_block_lessons(block_num: int, titles: list) -> list:
 
 def _all_lessons() -> list:
     lessons = []
-    for src in [B1_P1, B1_P2, B1_P3, B2_P1, B2_P2, B3, B4, B5, B6, B7, B8, B9, B10]:
+    for src in [B1_P1, B1_P2, B1_P3, B2_P1, B2_P2, B3, B4, B5, B6, B7, B8, B9, B10,
+                LESSONS_B1, LESSONS_B5, LESSONS_B7, LESSONS_B8, LESSONS_B9, LESSONS_B10, LESSONS_B11]:
         for fn in src:
             lessons.append(fn())
     # Заглушки оставшихся блоков (если такие есть в BLOCKS_META)

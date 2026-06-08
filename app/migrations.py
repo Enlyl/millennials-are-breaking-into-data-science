@@ -36,6 +36,9 @@ def run_migrations():
     _add_stakeholder_mention(conn)
     _fix_quality_issues(conn)
     _add_roleplay_dialogues(conn)
+    _add_augmented_lessons(conn)
+    _add_presentation_improvements(conn)
+    _add_block11_project(conn)
     print("[migrate] Content expansions done.")
 
     conn.close()
@@ -368,7 +371,7 @@ def _add_new_lessons(conn):
         # Get next order_idx
         max_order = c.execute("SELECT COALESCE(MAX(order_idx), 0) FROM lessons WHERE block_id=?", (block_id,)).fetchone()[0]
         c.execute("""INSERT INTO lessons (block_id, number, title, content_json, difficulty, estimated_minutes, order_idx)
-                    VALUES (?, ?, ?, ?, 'middle', 30, ?)""",
+                    VALUES (?, ?, ?, ?, 2, 30, ?)""",
                   (block_id, num, lesson["title"], json.dumps({"sections": sections_out}, ensure_ascii=False), max_order + 1))
     conn.commit()
 
@@ -748,6 +751,185 @@ def _fix_quality_issues(conn):
         conn.commit()
         print("[migrate] Quality fixes applied.")
 
+def _add_augmented_lessons(conn):
+    """Add new augmented lessons (1.13, 5.13-5.15, 7.18-7.19, 8.10-8.11, 9.12-9.14, 10.9).
+    Idempotent — checks if canary lesson '7.18' exists before inserting."""
+    c = conn.cursor()
+    if _exists(c, "lessons", "number", "7.18"):
+        return
+    from app.seed_augmented_content import (
+        LESSONS_B1, LESSONS_B5, LESSONS_B7, LESSONS_B8, LESSONS_B9, LESSONS_B10,
+    )
+    for src in [LESSONS_B1, LESSONS_B5, LESSONS_B7, LESSONS_B8, LESSONS_B9, LESSONS_B10]:
+        for fn in src:
+            ld = fn()
+            num = ld["number"]
+            bn = int(num.split(".")[0])
+            row = c.execute("SELECT id FROM blocks WHERE number=?", (bn,)).fetchone()
+            if not row:
+                continue
+            block_id = row[0]
+            if _exists(c, "lessons", "number", num):
+                continue
+            sections = json.loads(ld["sections_json"]) if isinstance(ld["sections_json"], str) else ld["sections_json"]
+            content_payload = {
+                "sections": sections,
+                "minutes": ld.get("estimated_minutes", 45),
+            }
+            c.execute(
+                "INSERT INTO lessons (block_id, number, title, content_json, difficulty, estimated_minutes, order_idx) VALUES (?,?,?,?,?,?,?)",
+                (block_id, num, ld["title"], json.dumps(content_payload, ensure_ascii=False),
+                 ld.get("difficulty", 2), ld.get("estimated_minutes", 45), int(num.split(".")[1]) - 1),
+            )
+            lesson_id = c.lastrowid
+            for ex_data in ld["exercises"]:
+                c.execute(
+                    "INSERT INTO exercises (lesson_id, number, type, prompt, starter_code, solution_code, test_cases_json, hints_json, difficulty, expected_result_json) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (lesson_id, ex_data["number"], ex_data["type"], ex_data["prompt"],
+                     ex_data["starter_code"], ex_data["solution_code"],
+                     ex_data["test_cases_json"], ex_data["hints_json"],
+                     ex_data["difficulty"], ex_data.get("expected_result_json")),
+                )
+    conn.commit()
+    print("[migrate] Augmented lessons added.")
+
+
+def _update_lesson_sections(conn, num, updater):
+    """Add/replace sections in a lesson. `updater(sections)` returns modified sections list."""
+    c = conn.cursor()
+    row = c.execute("SELECT id, content_json FROM lessons WHERE number=?", (num,)).fetchone()
+    if not row:
+        return
+    lid, cj = row
+    data = json.loads(cj)
+    sections = data.get("sections", [])
+    old_len = len(sections)
+    sections = updater(sections)
+    if len(sections) != old_len:
+        data["sections"] = sections
+        c.execute("UPDATE lessons SET content_json=? WHERE id=?", (json.dumps(data, ensure_ascii=False), lid))
+        conn.commit()
+
+def _add_presentation_improvements(conn):
+    """Debug challenges, recap quizzes, portfolio README, multiple testing fix."""
+    # Debug challenges for 5 lessons
+    debug_challenges = {
+        "3.4": {
+            "problem": "Почему этот код падает с ошибкой?",
+            "buggy_code": "import pandas as pd\ndf = pd.read_csv('data.csv')\ndf['date'] = pd.to_datetime(df['date'])\ndf[df['date'] > '2020-01-01']  # KeyError: 'date'",
+            "hint": "Проверь импорт данных — разделитель может отличаться",
+            "fix": "pd.read_csv('data.csv', sep=';')  # или другой разделитель"
+        },
+        "5.6": {
+            "problem": "Почему доверительный интервал несимметричный?",
+            "buggy_code": "import numpy as np\ndata = np.random.exponential(1, 50)\nmean = np.mean(data)\nse = np.std(data) / np.sqrt(50)\nci = (mean - 1.96*se, mean + 1.96*se)  # CI symmetric, but data skewed!",
+            "hint": "CLT требует n>30, но для экспоненциального 50 может быть мало",
+            "fix": "Используй bootstrap для несимметричных CI"
+        },
+        "7.3": {
+            "problem": "Почему accuracy на train 99%, а на test 52%?",
+            "buggy_code": "from sklearn.ensemble import RandomForestClassifier\nfrom sklearn.model_selection import train_test_split\n\nX_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)\nmodel = RandomForestClassifier(n_estimators=1000, max_depth=None, random_state=42)\nmodel.fit(X_train, y_train)\nprint(model.score(X_train, y_train))  # 0.99\nprint(model.score(X_test, y_test))    # 0.52",
+            "hint": "Слишком сложное дерево без ограничений",
+            "fix": "max_depth=10, min_samples_leaf=5 — ограничь сложность"
+        },
+        "8.4": {
+            "problem": "StandardScaler испортил разреженные данные — почему?",
+            "buggy_code": "from sklearn.preprocessing import StandardScaler\nimport numpy as np\n# One-hot encoded sparse data (mostly zeros)\nX = np.random.binomial(1, 0.1, (1000, 100))\nscaler = StandardScaler()\nX_scaled = scaler.fit_transform(X)  # Many values become -0.3...",
+            "hint": "StandardScaler центрирует — разреженные перестают быть разреженными",
+            "fix": "Для разреженных данных используй MaxAbsScaler или не центрируй"
+        },
+        "9.5": {
+            "problem": "Почему эксперимент не воспроизводится?",
+            "buggy_code": "import numpy as np\nimport pandas as pd\nfrom sklearn.ensemble import RandomForestClassifier\n\ndf = pd.read_csv('data.csv')\nX = df.drop('target', axis=1)\ny = df['target']\nmodel = RandomForestClassifier().fit(X, y)  # Different results every run!",
+            "hint": "Нет random_state нигде",
+            "fix": "np.random.seed(42); RandomForestClassifier(random_state=42)"
+        },
+    }
+    for num, dc in debug_challenges.items():
+        def _add_dc(sections, dc=dc):
+            found = any(s.get("type") == "debug_challenge" for s in sections)
+            if found:
+                return sections
+            sections.insert(4, {  # after summary
+                "type": "debug_challenge",
+                "problem": dc["problem"],
+                "buggy_code": dc["buggy_code"],
+                "hint": dc["hint"],
+                "fix": dc["fix"],
+            })
+            return sections
+        _update_lesson_sections(conn, num, _add_dc)
+
+    # Cross-block recap quizzes (before first lesson of blocks 3-9)
+    recap_data = {
+        "3.1": "SQL: чем INNER JOIN отличается от LEFT JOIN? Оконные функции — что такое ROW_NUMBER? Что такое агрегатные функции и GROUP BY?",
+        "4.1": "Pandas: как отфильтровать строки по условию? Как объединить два DataFrame? Что такое groupby и агрегация?",
+        "5.1": "Pandas: что такое pivot и melt? Как очистить пропуски? Что такое merge и join?",
+        "6.1": "Визуализация: какой тип графика для корреляции? Как построить box plot? Что такое Seaborn?",
+        "7.1": "Статистика: что такое p-value? Доверительные интервалы — как считать? A/B тест — как работает?",
+        "8.1": "ML: что такое переобучение? Как выбрать метрику? Что такое Random Forest?",
+        "9.1": "Feature Engineering: как кодировать категории? Что такое StandardScaler? Как отбирать признаки?",
+        "10.1": "DS-инструменты: Git, Docker, MLOps — зачем? Как структурировать ML-проект?",
+    }
+    for num, items_text in recap_data.items():
+        items = [line.strip() for line in items_text.split("?") if line.strip()]
+        items = [item + "?" for item in items]
+
+        def _add_quiz(sections, items=items):
+            found = any(s.get("type") == "recap_quiz" for s in sections)
+            if found:
+                return sections
+            sections.insert(0, {
+                "type": "recap_quiz",
+                "items": items,
+            })
+            return sections
+        _update_lesson_sections(conn, num, _add_quiz)
+
+    # Portfolio README template → lesson 9.8
+    def _add_readme(sections):
+        found = any(s.get("type") == "portfolio_readme" for s in sections)
+        if found:
+            return sections
+        sections.append({
+            "type": "portfolio_readme",
+            "content": (
+                "# Project Title\n\n"
+                "## Problem Statement\n_Business context and problem description._\n\n"
+                "## Data\n- Source: _where from_\n- Size: _rows × columns_\n- Key features: _list_\n\n"
+                "## Approach\n1. EDA\n2. Feature Engineering\n3. Modeling\n4. Validation\n\n"
+                "## Results\n| Model | Accuracy | F1 |\n|-------|----------|----|\n| RF    | 0.87     | 0.85 |\n| XGB   | 0.91     | 0.89 |\n\n"
+                "## Lessons Learned\n_Key takeaways._\n\n"
+                "## How to Reproduce\n```bash\npip install -r requirements.txt\npython run.py\n```"
+            ),
+        })
+        return sections
+    _update_lesson_sections(conn, "9.8", _add_readme)
+
+    # Multiple testing correction → lesson 5.8 theory
+    c = conn.cursor()
+    row = c.execute("SELECT id, content_json FROM lessons WHERE number='5.8'").fetchone()
+    if row:
+        lid, cj = row
+        data = json.loads(cj)
+        for s in data["sections"]:
+            if s["type"] == "theory":
+                if "Множественная проверка" in s["content"]:
+                    break  # already added
+                s["content"] += (
+                    "\n\n**Важно: множественная проверка гипотез**\n"
+                    "Если запускаете 20 A/B тестов одновременно, ожидайте 1 ложный "
+                    "результат при α=0.05. **Коррекция**: Bonferroni (α/m), "
+                    "FDR (Benjamini-Hochberg). Всегда указывайте primary metric "
+                    "заранее — тест на одной метрике не требует коррекции."
+                )
+                c.execute("UPDATE lessons SET content_json=? WHERE id=?", (json.dumps(data, ensure_ascii=False), lid))
+                conn.commit()
+                break
+
+    print("[migrate] Presentation improvements applied.")
+
+
 def _add_roleplay_dialogues(conn):
     """
     Convert Block 10 interview_questions from plain strings to role-play format:
@@ -876,6 +1058,59 @@ def _add_roleplay_dialogues(conn):
     if any_fixed:
         conn.commit()
         print("[migrate] Role-play dialogues applied.")
+
+def _add_block11_project(conn):
+    """Create Block 11 (Финальный проект) and move lesson 10.10 → 11.1."""
+    c = conn.cursor()
+    # Create block 11 if missing
+    row = c.execute("SELECT id FROM blocks WHERE number=11").fetchone()
+    if not row:
+        c.execute(
+            "INSERT INTO blocks (number, title, description, theme) VALUES (?, ?, ?, ?)",
+            (11, "Финальный проект",
+             "Capstone-проекты: Космос (анализ миссий NASA) и Игры (анализ поведения игроков).",
+             "neutral"),
+        )
+        block_id = c.lastrowid
+        print("[migrate] Block 11 created.")
+    else:
+        block_id = row[0]
+
+    # Remove lesson 10.10 if it exists (was moved to 11.1)
+    c.execute("DELETE FROM lessons WHERE number='10.10'")
+
+    def _insert_b11_lesson(fn, num, order):
+        ld = fn()
+        sections = json.loads(ld["sections_json"]) if isinstance(ld["sections_json"], str) else ld["sections_json"]
+        content_payload = {
+            "sections": sections,
+            "minutes": ld.get("estimated_minutes", 45),
+        }
+        c.execute(
+            "INSERT INTO lessons (block_id, number, title, content_json, difficulty, estimated_minutes, order_idx) VALUES (?,?,?,?,?,?,?)",
+            (block_id, num, ld["title"], json.dumps(content_payload, ensure_ascii=False),
+             ld.get("difficulty", 2), ld.get("estimated_minutes", 45), order),
+        )
+        lesson_id = c.lastrowid
+        for ex_data in ld["exercises"]:
+            c.execute(
+                "INSERT INTO exercises (lesson_id, number, type, prompt, starter_code, solution_code, test_cases_json, hints_json, difficulty, expected_result_json) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (lesson_id, ex_data["number"], ex_data["type"], ex_data["prompt"],
+                 ex_data["starter_code"], ex_data["solution_code"],
+                 ex_data["test_cases_json"], ex_data["hints_json"],
+                 ex_data["difficulty"], ex_data.get("expected_result_json")),
+            )
+        print(f"[migrate] Lesson {num} added.")
+
+    from app.seed_augmented_content import _11_1, _11_2, _11_3
+    for fn, num, order in [(_11_1, "11.1", 0), (_11_2, "11.2", 1), (_11_3, "11.3", 2)]:
+        if not c.execute("SELECT 1 FROM lessons WHERE number=?", (num,)).fetchone():
+            _insert_b11_lesson(fn, num, order)
+        else:
+            print(f"[migrate] Lesson {num} already exists, skipped.")
+
+    conn.commit()
+
 
 if __name__ == "__main__":
     run_migrations()
