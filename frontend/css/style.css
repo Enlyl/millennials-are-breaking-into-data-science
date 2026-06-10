@@ -2105,30 +2105,6 @@ html, body {
   text-align: left;
 }
 
-/* ── Emoji reactions on messages ── */
-.chat-reactions {
-  display: flex;
-  gap: 2px;
-  margin-top: 4px;
-  padding-left: 2px;
-}
-.chat-reaction {
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 10px;
-  transition: transform 0.15s, background 0.15s;
-  user-select: none;
-}
-.chat-reaction:hover {
-  transform: scale(1.25);
-}
-.chat-reaction.active {
-  transform: scale(1.15);
-  background: var(--accent-subtle);
-}
-
 /* --- Task / Advice / Links --- */
 /* ── Capstone split layout ── */
 .chat-panel-top {

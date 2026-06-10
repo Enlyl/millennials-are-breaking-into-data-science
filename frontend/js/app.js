@@ -1480,7 +1480,6 @@
             <div class="chat-body">
               ${nameBlock}
               <div class="chat-bubble">${escapeHtml(d.text)}</div>
-              ${side !== "me" ? `<div class="chat-reactions" data-idx="${entryIdx}"><span class="chat-reaction" data-react="👍">👍</span><span class="chat-reaction" data-react="😂">😂</span><span class="chat-reaction" data-react="🔥">🔥</span><span class="chat-reaction" data-react="💩">💩</span><span class="chat-reaction" data-react="🤡">🤡</span></div>` : ""}
             </div>
             ${side === "me" ? `<div class="chat-av-col">${avatarBlock}</div>` : ""}
           </div>
@@ -1635,21 +1634,6 @@
       const ch = sid ? _capstoneCharacters[sid] : null;
       if (!ch) return;
       _showCharacterModal(ch);
-    });
-
-    // --- Bind reactions on colleague messages ---
-    panel.addEventListener("click", function _reactClick(e) {
-      const react = e.target.closest(".chat-reaction");
-      if (!react) return;
-      const container = react.closest(".chat-reactions");
-      if (!container) return;
-      const prev = container.querySelector(".chat-reaction.active");
-      if (prev === react) {
-        react.classList.remove("active");
-      } else {
-        if (prev) prev.classList.remove("active");
-        react.classList.add("active");
-      }
     });
 
     // --- Bind code copy ---
