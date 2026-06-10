@@ -81,6 +81,7 @@
   }
 
   // Splash screen
+  let _splashStart = Date.now();
   const splashMsg = () => document.getElementById("splash-msg");
   function updateSplash(msg) {
     const el = splashMsg();
@@ -88,7 +89,17 @@
   }
   function hideSplash() {
     const el = document.getElementById("splash");
-    if (el) el.classList.add("hidden");
+    if (!el) return;
+    // Минимальное время показа 1.5с для плавного впечатления
+    const elapsed = Date.now() - _splashStart;
+    const minShow = Math.max(0, 1500 - elapsed);
+    setTimeout(() => {
+      el.classList.add("splash-fading");
+      // Ждём окончания transition, либо скрываем через 1с (fallback)
+      const hide = () => { el.style.display = "none"; };
+      el.addEventListener("transitionend", hide, { once: true });
+      setTimeout(hide, 1000);
+    }, minShow);
   }
 
   // ============================================================================
@@ -154,28 +165,21 @@
   }
 
   async function loadInitial() {
-    try {
-      state.blocks = await api("/lessons/blocks");
-    } catch (e) {
-      console.error("Failed to load blocks:", e);
-      state.blocks = [];
-      throw e;
-    }
-    try {
-      state.summary = await api("/progress/summary");
-    } catch (e) {
-      console.error("Failed to load summary:", e);
-      state.summary = { lessons_total: 0, lessons_done: 0, exercises_total: 0, exercises_solved: 0 };
-    }
-    try {
-      state.achievements = await api("/achievements/");
-    } catch (e) {
-      console.error("Failed to load achievements:", e);
-      state.achievements = [];
-    }
+    // Загружаем блоки, прогресс, достижения и уроки параллельно
+    const [blocks, summary, achievements, allLessons] = await Promise.all([
+      api("/lessons/blocks").catch(e => { console.error("Failed to load blocks:", e); return []; }),
+      api("/progress/summary").catch(e => {
+        console.error("Failed to load summary:", e);
+        return { lessons_total: 0, lessons_done: 0, exercises_total: 0, exercises_solved: 0 };
+      }),
+      api("/achievements/").catch(e => { console.error("Failed to load achievements:", e); return []; }),
+      api("/lessons/").catch(e => { console.error("loadAllLessonsForSidebar failed:", e); return []; }),
+    ]);
+    state.blocks = blocks;
+    state.summary = summary;
+    state.achievements = achievements;
+    state.allLessons = allLessons;
     updateProgressUI();
-    // Ждём уроки перед рендером сайдбара — избегаем layout shift
-    await loadAllLessonsForSidebar();
     renderSidebarFull();
   }
 
@@ -244,16 +248,6 @@
         localStorage.setItem("ds_sidebar_collapsed", JSON.stringify([...collapsed]));
       });
     });
-  }
-
-  async function loadAllLessonsForSidebar() {
-    try {
-      const allLessons = await api("/lessons/");
-      state.allLessons = allLessons;
-      renderSidebarFull();
-    } catch (e) {
-      console.error("loadAllLessonsForSidebar failed:", e);
-    }
   }
 
   // ============================================================================
@@ -1260,7 +1254,7 @@
         </div>
 
         <div class="card">
-          <h2>📋 Этапы проекта (10 шагов)</h2>
+          <h2>📋 Этапы проекта (${(fp.steps_json || []).length} шагов)</h2>
           <p style="color: var(--text-secondary); font-size:13px; margin-bottom:8px;">
             Раскрой каждый шаг, чтобы увидеть описание и ссылки на уроки.
           </p>
@@ -1315,6 +1309,97 @@
   // ============================================================================
   const _capstoneProgress = {};
 
+  const _capstoneCharacters = {
+    client: { name: "Заказчик", emoji: "👔", color: "#E65100", avatar: "/static/img/avatars/client.png", role: "Клиент", description: "Представитель заказчика. Даёт задание и принимает финальный результат. Строгий, но справедливый." },
+    me: { name: "Я", emoji: "😊", color: "#1565C0", avatar: "/static/img/avatars/me.png", role: "Новичок в DS", description: "Начинающий дата-сайентист. Когда получает задачу, поначалу паникует и просит совета у более опытных коллег." },
+    alexey: { name: "Весёлый Лёха", emoji: "😄", color: "#2E7D32", avatar: "/static/img/avatars/alexey.png", role: "Middle Data Scientist", description: "Оптимист и душа команды. Всегда подбадривает коллег, верит, что любая задача решается, если подойти к ней с улыбкой." },
+    malder: { name: "Мрачный Малдер", emoji: "🕵️", color: "#4E342E", avatar: "/static/img/avatars/malder.png", role: "Senior Data Scientist", description: "Скептик с многолетним опытом. Любит говорить «я же предупреждал» и рассказывать страшные истории о продакшне." },
+    dmitry: { name: "Озабоченный Дима", emoji: "😰", color: "#C62828", avatar: "/static/img/avatars/dmitry.png", role: "Team Lead", description: "Вечно переживает за дедлайны, качество кода и настроение в команде. Носит с собой блокнот для записи страхов." },
+    scully: { name: "Научная Скалли", emoji: "🔬", color: "#283593", avatar: "/static/img/avatars/scully.png", role: "Research Scientist", description: "Доктор наук, подходит к любой задаче как к научному исследованию. Требует статистических обоснований и A/B-тестов." },
+    sergey: { name: "Серёжа-геймер", emoji: "🎮", color: "#00838F", avatar: "/static/img/avatars/sergey.png", role: "ML Engineer", description: "Мыслит категориями RPG: баги — это мобы, дедлайн — босс-файт, а нейросети — магия высшего уровня." },
+    galina: { name: "Продуктивная Галя", emoji: "📋", color: "#F57F17", avatar: "/static/img/avatars/galina.png", role: "Project Manager", description: "Мастер планирования и декомпозиции задач. Её любимые слова: «давай запишем это в бэклог» и «а какой deadline?»" },
+    igor: { name: "Мрачный Игорь", emoji: "🔧", color: "#37474F", avatar: "/static/img/avatars/igor.png", role: "DevOps Engineer", description: "Молчаливый администратор всего, что работает. Починит любой баг за пять минут, но никогда не расскажет как." },
+    stepan: { name: "Дизайнер Стёпка", emoji: "🎨", color: "#6A1B9A", avatar: "/static/img/avatars/stepan.png", role: "UX/UI Designer", description: "Перфекционист с острым чувством прекрасного. Верстает так, что хочется плакать от счастья (или от количества правок)." },
+    viktor: { name: "Странный Витя", emoji: "🐱", color: "#F9A825", avatar: "/static/img/avatars/viktor.png", role: "Data Analyst", description: "Говорит загадками и цитатами из «Матрицы». Находит инсайты там, где другие видят только шум." },
+  };
+
+  function _getAvatarHtml(speakerId) {
+    const ch = _capstoneCharacters[speakerId];
+    if (!ch) return `<div class="chat-av-unknown" title="?">?</div>`;
+    const role = ch.role ? ` · ${ch.role}` : "";
+    return `
+      <div class="chat-av" data-speaker="${speakerId}" title="${ch.name}${role}">
+        <img src="${ch.avatar}" alt="${ch.name}" class="chat-av-img" loading="lazy"
+          onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+        <div class="chat-av-fallback" style="background:${ch.color};">${ch.emoji}</div>
+      </div>
+    `;
+  }
+
+  function _getSpeakerLabel(speakerId) {
+    const ch = _capstoneCharacters[speakerId];
+    if (!ch) return "";
+    if (speakerId === "client") return '<span>👔 Заказчик</span>';
+    if (speakerId === "me") return '<span>😊 Я</span>';
+    return `<span style="color:${ch.color};">${ch.emoji} ${ch.name}</span>`;
+  }
+
+  function _showCharacterModal(ch) {
+    const modal = document.getElementById("character-modal");
+    if (!modal) return;
+    modal.querySelector(".character-modal-avatar")?.setAttribute("src", ch.avatar || "");
+    modal.querySelector(".character-modal-avatar")?.setAttribute("alt", ch.name || "");
+    const nameEl = modal.querySelector(".character-modal-name");
+    if (nameEl) nameEl.textContent = `${ch.emoji || ""} ${ch.name || ""}`;
+    const roleEl = modal.querySelector(".character-modal-role");
+    if (roleEl) roleEl.textContent = ch.role || "";
+    const descEl = modal.querySelector(".character-modal-desc");
+    if (descEl) descEl.textContent = ch.description || "";
+    modal.style.display = "flex";
+  }
+
+  function _hideCharacterModal() {
+    const modal = document.getElementById("character-modal");
+    if (modal) modal.style.display = "none";
+  }
+
+  function _loadCapstoneProgress(theme) {
+    try {
+      const saved = localStorage.getItem("ds_capstone_progress");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed[theme]) {
+          return {
+            currentStep: parsed[theme].currentStep || 0,
+            hintIndex: parsed[theme].hintIndex || {},
+          };
+        }
+      }
+    } catch (e) {}
+    return { currentStep: 0, hintIndex: {} };
+  }
+
+  function _saveCapstoneProgress(theme, pp) {
+    try {
+      let saved = {};
+      const raw = localStorage.getItem("ds_capstone_progress");
+      if (raw) try { saved = JSON.parse(raw); } catch (e) {}
+      saved[theme] = {
+        currentStep: pp.currentStep,
+        hintIndex: pp.hintIndex || {},
+      };
+      localStorage.setItem("ds_capstone_progress", JSON.stringify(saved));
+    } catch (e) {}
+  }
+
+  function _resetCapstoneProgress(theme, fp, pp, meta, main) {
+    if (!confirm("Сбросить весь прогресс по этому проекту?")) return;
+    pp.currentStep = 0;
+    pp.hintIndex = {};
+    _saveCapstoneProgress(theme, pp);
+    _renderCapstoneStep(fp, pp, theme, meta, main);
+  }
+
   async function renderCapstoneLesson(main, lesson, number) {
     const theme = number === "11.2" ? "space" : "gaming";
     const themeMeta = {
@@ -1329,6 +1414,7 @@
           <a href="#/">Главная</a> / <a href="#/">Блок 11</a> / Урок ${lesson.number}
         </div>
         <h1>${escapeHtml(lesson.title)}</h1>
+        <div style="margin-top:4px;"><button class="btn btn-secondary btn-sm" id="reset-capstone-progress" style="font-size:11px;">↺ Сбросить прогресс</button></div>
       </div>
       <div class="comic-view" data-theme="${theme}">
         <div class="comic-header" style="border-bottom: 2px solid ${meta.color};">
@@ -1348,8 +1434,10 @@
 
     try {
       const fp = await api("/final-project/" + theme);
-      _capstoneProgress[theme] = _capstoneProgress[theme] || { currentStep: 0, completed: new Set() };
-      const pp = _capstoneProgress[theme];
+      const pp = _loadCapstoneProgress(theme);
+      _capstoneProgress[theme] = pp;
+      document.getElementById("reset-capstone-progress").onclick = () =>
+        _resetCapstoneProgress(theme, fp, pp, meta, main);
       _renderCapstoneStep(fp, pp, theme, meta, main);
     } catch (e) {
       const loading = main.querySelector(".comic-loading");
@@ -1367,55 +1455,219 @@
     const idx = pp.currentStep;
     const step = steps[idx];
     if (!step) return;
+    const totalSteps = steps.length;
+    const hintIdx = (pp.hintIndex || {})[idx] || 0;
 
     const progressHtml = steps.map((s, i) =>
-      `<div class="comic-progress-dot ${i === idx ? 'active' : ''} ${pp.completed.has(i) ? 'done' : ''}" title="Шаг ${i+1}: ${s.title}"></div>`
+      `<div class="comic-progress-dot ${i === idx ? 'active' : ''}" title="Шаг ${i+1}: ${s.title}"></div>`
     ).join("");
 
-    const bubblesHtml = (step.dialogue || []).map(d => {
-      const isClient = d.speaker === "client";
+    let lastSpeaker = null;
+    const bubblesHtml = (step.dialogue || []).map((d, entryIdx) => {
+      const isNewSpeaker = d.speaker !== lastSpeaker;
+      lastSpeaker = d.speaker;
+      const side = d.speaker === "me" ? "me" : "other";
+
+      const avatarBlock = isNewSpeaker ? _getAvatarHtml(d.speaker) : '<div class="chat-av-spacer"></div>';
+      const nameBlock = isNewSpeaker
+        ? `<div class="chat-name ${d.speaker === 'me' ? 'chat-name-me' : ''}">${_getSpeakerLabel(d.speaker)}</div>`
+        : "";
+
       return `
-        <div class="speech-bubble ${isClient ? 'client' : 'me'}">
-          <div class="speech-avatar">${isClient ? '👔' : '😊'}</div>
-          <div class="speech-text">${escapeHtml(d.text)}</div>
+        <div class="chat-msg chat-msg-${side}${isNewSpeaker ? '' : ' chat-msg-cont'}" data-speaker="${d.speaker}">
+          <div class="chat-msg-inner">
+            ${side !== "me" ? `<div class="chat-av-col">${avatarBlock}</div>` : ""}
+            <div class="chat-body">
+              ${nameBlock}
+              <div class="chat-bubble">${escapeHtml(d.text)}</div>
+              ${side !== "me" ? `<div class="chat-reactions" data-idx="${entryIdx}"><span class="chat-reaction" data-react="👍">👍</span><span class="chat-reaction" data-react="😂">😂</span><span class="chat-reaction" data-react="🔥">🔥</span><span class="chat-reaction" data-react="💩">💩</span><span class="chat-reaction" data-react="🤡">🤡</span></div>` : ""}
+            </div>
+            ${side === "me" ? `<div class="chat-av-col">${avatarBlock}</div>` : ""}
+          </div>
         </div>
       `;
     }).join("");
 
+    // --- Hints ---
+    const hintsHtml = (step.hints && step.hints.length) ? `
+      <div class="chat-hints">
+        ${step.hints.slice(0, hintIdx).map(h => `<div class="chat-hint">💡 ${escapeHtml(h)}</div>`).join("")}
+        ${hintIdx < step.hints.length ? `<button class="btn btn-sm btn-ghost chat-hint-btn">💡 Показать подсказку</button>` : ""}
+      </div>
+    ` : "";
+
+    // --- Task (professional style) ---
     const taskHtml = step.task ? `
-      <div class="comic-task">
-        <div class="comic-task-label">📋 Задание</div>
-        <div class="comic-task-text">${escapeHtml(step.task)}</div>
+      <div class="work-task">
+        <div class="work-task-hdr">📋 Задание</div>
+        <div class="work-task-text">${escapeHtml(step.task)}</div>
+      </div>
+    ` : "";
+
+    // --- Code snippet ---
+    const codeHtml = step.code ? `
+      <div class="work-code">
+        <div class="work-code-hdr">📄 Стартовый код</div>
+        <pre class="work-code-block"><code>${escapeHtml(step.code)}</code></pre>
+        <button class="btn btn-xs btn-ghost work-code-copy" data-code="${escapeHtml(step.code).replace(/"/g,'&quot;')}">📋 Копировать</button>
+      </div>
+    ` : "";
+
+    // --- Data snippet ---
+    const dataHtml = step.data_snippet ? `
+      <div class="work-data">
+        <div class="work-data-hdr">📊 Фрагмент данных</div>
+        <pre class="work-data-block"><code>${escapeHtml(step.data_snippet)}</code></pre>
       </div>
     ` : "";
 
     const lessonsHtml = (step.lessons || []).length ? `
-      <div class="comic-lessons">
-        <span>📚 Связанные уроки:</span>
-        ${step.lessons.map(l => `<a href="#/lesson/${l}" class="comic-lesson-link">${l}</a>`).join(", ")}
-      </div>
+      <div class="work-links">📚 Полезные уроки: ${step.lessons.map(l => `<a href="#/lesson/${l}" class="work-link">${l}</a>`).join(", ")}</div>
     ` : "";
-
-    const isDone = pp.completed.has(idx);
-    const completeBtn = `
-      <button class="btn ${isDone ? 'btn-success' : 'btn-primary'} comic-complete-btn"
-        data-step="${idx}">${isDone ? '✓ Шаг выполнен' : '✓ Отметить выполненным'}</button>
-    `;
 
     const panel = $(`#comic-panel`);
     panel.innerHTML = `
-      <div class="comic-step-header">Шаг ${idx + 1} / ${steps.length}: ${escapeHtml(step.title)}</div>
-      <div class="comic-bubbles">${bubblesHtml}</div>
-      ${taskHtml}
-      ${lessonsHtml}
-      <div style="margin-top: var(--space-4); text-align: center;">${completeBtn}</div>
+      <div class="chat-day-divider">Шаг ${idx + 1} / ${totalSteps} · ${escapeHtml(step.title)}</div>
+      <div class="chat-panel-top">
+        <div class="chat-feed">
+          ${bubblesHtml}
+          <div class="chat-typing-container" style="display:none;">
+            <div class="chat-typing-avatar"></div>
+            <div class="chat-typing-bubble">
+              <div class="chat-typing-dots"><span></span><span></span><span></span></div>
+              <span class="chat-typing-label">печатает</span>
+            </div>
+          </div>
+        </div>
+        ${hintsHtml}
+      </div>
+      <div class="chat-panel-divider"></div>
+      <div class="chat-panel-bottom">
+        ${taskHtml}
+        ${codeHtml}
+        ${dataHtml}
+        ${lessonsHtml}
+      </div>
     `;
 
+    // --- Typing animation: progressive reveal of ALL messages top→bottom ---
+    const typingBox = panel.querySelector(".chat-typing-container");
+    const typingAv = panel.querySelector(".chat-typing-avatar");
+    const allMsgs = Array.from(panel.querySelectorAll(".chat-msg"));
+    if (allMsgs.length > 0 && typingBox) {
+      const feed = panel.querySelector(".chat-feed");
+      if (!window._typedSteps) window._typedSteps = {};
+      const animKey = theme + "-" + idx;
+      const alreadyTyped = window._typedSteps[animKey] || false;
+      window._typedSteps[animKey] = true;
+
+      // Hide ALL messages from flow
+      allMsgs.forEach(m => { m.style.display = "none"; });
+
+      if (!alreadyTyped) {
+        // Animate each message with typing indicator, top→bottom
+        let delay = 400; // initial pause
+        allMsgs.forEach((msg, i) => {
+          const speaker = msg.dataset.speaker || "";
+          const ch = _capstoneCharacters[speaker] || { emoji: "💬", name: speaker };
+          const isSelf = msg.classList.contains("chat-msg-me");
+
+          if (isSelf) {
+            // Own message: no typing indicator, just appear
+            delay += 150;
+            setTimeout(() => {
+              msg.style.display = "block";
+              msg.classList.add("chat-msg-appear");
+              feed.scrollTop = feed.scrollHeight;
+            }, delay);
+          } else {
+            // Colleague: show typing indicator, then reveal
+            const typingDuration = 1600 + Math.random() * 1000;
+
+            // Show typing indicator for this speaker
+            setTimeout(() => {
+              typingAv.innerHTML = ch.emoji;
+              typingBox.style.display = "flex";
+              typingBox.classList.remove("chat-typing-hide");
+              typingBox.classList.add("chat-typing-show");
+              feed.scrollTop = feed.scrollHeight;
+            }, delay);
+
+            delay += typingDuration;
+
+            // Hide typing, show message
+            setTimeout(() => {
+              typingBox.classList.remove("chat-typing-show");
+              typingBox.classList.add("chat-typing-hide");
+              msg.style.display = "block";
+              msg.classList.add("chat-msg-appear");
+              feed.scrollTop = feed.scrollHeight;
+            }, delay);
+          }
+        });
+        // Hide typing box at end
+        setTimeout(() => { typingBox.style.display = "none"; }, delay);
+      } else {
+        // Already seen: show all at once
+        allMsgs.forEach(m => { m.style.display = "block"; });
+      }
+    }
+
+    // --- Bind choice buttons ---
+    // (no more choices — all dialogue is simple text)
+
+    // --- Bind hint button ---
+    const hintBtn = panel.querySelector(".chat-hint-btn");
+    if (hintBtn) {
+      hintBtn.onclick = function() {
+        if (!pp.hintIndex) pp.hintIndex = {};
+        pp.hintIndex[idx] = (pp.hintIndex[idx] || 0) + 1;
+        _saveCapstoneProgress(theme, pp);
+        _renderCapstoneStep(fp, pp, theme, meta, main);
+      };
+    }
+
+    // --- Bind avatar click → character modal (delegation) ---
+    panel.addEventListener("click", function _avClick(e) {
+      const av = e.target.closest(".chat-av");
+      if (!av) return;
+      const sid = av.dataset.speaker;
+      const ch = sid ? _capstoneCharacters[sid] : null;
+      if (!ch) return;
+      _showCharacterModal(ch);
+    });
+
+    // --- Bind reactions on colleague messages ---
+    panel.addEventListener("click", function _reactClick(e) {
+      const react = e.target.closest(".chat-reaction");
+      if (!react) return;
+      const container = react.closest(".chat-reactions");
+      if (!container) return;
+      const prev = container.querySelector(".chat-reaction.active");
+      if (prev === react) {
+        react.classList.remove("active");
+      } else {
+        if (prev) prev.classList.remove("active");
+        react.classList.add("active");
+      }
+    });
+
+    // --- Bind code copy ---
+    const copyBtn = panel.querySelector(".work-code-copy");
+    if (copyBtn) {
+      copyBtn.onclick = function() {
+        navigator.clipboard.writeText(this.dataset.code).catch(() => {});
+        this.textContent = "✅ Скопировано";
+        setTimeout(() => { this.textContent = "📋 Копировать"; }, 2000);
+      };
+    }
+
+    // --- Nav ---
     const nav = $(`#comic-nav`);
     nav.innerHTML = `
       <button class="btn btn-secondary" id="comic-prev" ${idx === 0 ? 'disabled' : ''}>◀ Назад</button>
       <div class="comic-progress-strip">${progressHtml}</div>
-      <button class="btn btn-primary" id="comic-next">${idx < steps.length - 1 ? 'Вперёд ▶' : '🎉 Завершить'}</button>
+      <button class="btn btn-primary" id="comic-next">${idx < totalSteps - 1 ? 'Вперёд ▶' : '🎉 Завершить'}</button>
     `;
 
     const progressEl = $(`#comic-progress`);
@@ -1423,20 +1675,17 @@
 
     const prevBtn = $(`#comic-prev`);
     const nextBtn = $(`#comic-next`);
-    const completeBtnEl = panel.querySelector(".comic-complete-btn");
 
     if (prevBtn) prevBtn.onclick = () => {
-      if (pp.currentStep > 0) { pp.currentStep--; _renderCapstoneStep(fp, pp, theme, meta, main); }
+      if (pp.currentStep > 0) { pp.currentStep--; _saveCapstoneProgress(theme, pp); _renderCapstoneStep(fp, pp, theme, meta, main); }
     };
     if (nextBtn) nextBtn.onclick = () => {
-      if (idx < steps.length - 1) { pp.currentStep++; _renderCapstoneStep(fp, pp, theme, meta, main); }
+      if (idx < totalSteps - 1) { pp.currentStep++; _saveCapstoneProgress(theme, pp); _renderCapstoneStep(fp, pp, theme, meta, main); }
       else { _showCapstoneComplete(theme, meta, main); }
     };
-    if (completeBtnEl) completeBtnEl.onclick = function() {
-      const sIdx = parseInt(this.dataset.step);
-      if (pp.completed.has(sIdx)) pp.completed.delete(sIdx); else pp.completed.add(sIdx);
-      _renderCapstoneStep(fp, pp, theme, meta, main);
-    };
+
+    const feed = panel.querySelector(".chat-feed");
+    if (feed) feed.scrollTop = 0;
   }
 
   function _showCapstoneComplete(theme, meta, main) {
@@ -1444,18 +1693,22 @@
     const nav = $(`#comic-nav`);
     const otherTheme = theme === "space" ? "gaming" : "space";
     const otherNum = theme === "space" ? "11.3" : "11.2";
+
+    // Mark all steps completed
+    _saveCapstoneProgress(theme, _capstoneProgress[theme]);
+
     panel.innerHTML = `
       <div class="project-complete">
         <div class="project-complete-icon">🎉</div>
         <h2>Проект сдан!</h2>
-        <p>Поздравляю! Ты прошёл все 10 шагов проекта «${meta.title}».</p>
+        <p>Поздравляю! Ты прошёл все 15 шагов проекта «${meta.title}».</p>
         <div class="project-complete-stats">
           <div class="project-complete-stat">
-            <span class="stat-number">10</span>
+            <span class="stat-number">15</span>
             <span class="stat-label">Шагов пройдено</span>
           </div>
           <div class="project-complete-stat">
-            <span class="stat-number">🚀</span>
+            <span class="stat-number">${meta.icon}</span>
             <span class="stat-label">Готово для портфолио</span>
           </div>
         </div>
@@ -1472,7 +1725,7 @@
     `;
     nav.innerHTML = ``;
     const progressEl = $(`#comic-progress`);
-    if (progressEl) progressEl.innerHTML = Array(10).fill(0).map(() => `<div class="comic-progress-dot done"></div>`).join("");
+    if (progressEl) progressEl.innerHTML = Array(15).fill(0).map(() => `<div class="comic-progress-dot done"></div>`).join("");
   }
 
   // ============================================================================
@@ -1579,6 +1832,19 @@
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
       }
     });
+
+    // Character modal
+    const charModal = document.getElementById("character-modal");
+    if (charModal) {
+      const closeBtn = charModal.querySelector(".character-modal-close");
+      closeBtn?.addEventListener("click", _hideCharacterModal);
+      charModal.addEventListener("click", function _charOutside(e) {
+        if (e.target === charModal && charModal.style.display !== "none") _hideCharacterModal();
+      });
+      document.addEventListener("keydown", function _charEsc(e) {
+        if (e.key === "Escape" && charModal.style.display !== "none") _hideCharacterModal();
+      });
+    }
 
     // Запускаем загрузку sandbox-ов ПАРАЛЛЕЛЬНО с загрузкой данных
     updateSplash("Загружаю Python окружение...");

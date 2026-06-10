@@ -20,6 +20,12 @@ def run_migrations():
     conn = _conn()
     cur = conn.cursor()
 
+    # Add characters_json column if missing (for existing DBs)
+    try:
+        cur.execute("ALTER TABLE final_projects ADD COLUMN characters_json TEXT NOT NULL DEFAULT '[]'")
+    except Exception:
+        pass  # column already exists
+
     # Only run seeding-related steps if lesson 3.13 doesn't exist yet
     if not _exists(cur, "lessons", "number", "3.13"):
         print("[migrate] Seeding new lessons...")
@@ -592,10 +598,10 @@ def _add_3rd_capstone(conn):
         "Docker + README с инструкцией по запуску",
     ]
     dataset = {"source": "Synthetic SaaS", "rows": 5000, "columns": ["user_id", "signup_date", "last_login", "monthly_logins", "support_tickets", "plan_type", "churned"], "churn_rate": 0.23}
-    c.execute("""INSERT INTO final_projects (theme, title, description, steps_json, dataset_json, template_code, solution_code)
+    c.execute("""INSERT INTO final_projects (theme, title, description, steps_json, dataset_json, template_code, solution_code, characters_json)
                 VALUES ('gaming', 'Анализ оттока клиентов SaaS-стартапа',
                 'Полный цикл: загрузить данные → EDA → модель → деплой через FastAPI → мониторинг PSI',
-                ?, ?, 'template here', 'solution here')""",
+                ?, ?, 'template here', 'solution here', '[]')""",
               (json.dumps(steps, ensure_ascii=False), json.dumps(dataset, ensure_ascii=False)))
     conn.commit()
 

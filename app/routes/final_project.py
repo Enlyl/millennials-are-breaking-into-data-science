@@ -18,7 +18,7 @@ def get_final_project(theme: str) -> dict:
     if not fp:
         raise HTTPException(404, "Final project not found for this theme")
     # Парсим JSON-поля, если они строками
-    for field in ("steps_json", "dataset_json"):
+    for field in ("steps_json", "dataset_json", "characters_json"):
         val = fp.get(field)
         if isinstance(val, str):
             try:

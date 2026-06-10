@@ -203,12 +203,13 @@ def _seed_final_projects(conn) -> None:
     for fp in FINAL_PROJECTS:
         conn.execute(
             """INSERT INTO final_projects
-               (theme, title, description, steps_json, dataset_json, template_code, solution_code)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               (theme, title, description, steps_json, dataset_json, template_code, solution_code, characters_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (fp["theme"], fp["title"], fp["description"],
              json.dumps(fp["steps_json"], ensure_ascii=False),
              json.dumps(fp["dataset_json"], ensure_ascii=False),
-             fp["template_code"], fp["solution_code"]),
+             fp["template_code"], fp["solution_code"],
+             json.dumps(fp["characters_json"], ensure_ascii=False)),
         )
 
 
@@ -220,4 +221,9 @@ def seed_all(conn) -> None:
     _seed_projects(conn)
     _seed_achievements(conn)
     _seed_interview_questions(conn)
+    _seed_final_projects(conn)
+
+
+def reseed_final_projects(conn) -> None:
+    """Перезаписывает final_projects (вызывается при каждом запуске)."""
     _seed_final_projects(conn)

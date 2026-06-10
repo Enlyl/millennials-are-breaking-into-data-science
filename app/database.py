@@ -114,7 +114,8 @@ CREATE TABLE IF NOT EXISTS final_projects (
     steps_json TEXT NOT NULL,
     dataset_json TEXT NOT NULL,
     template_code TEXT NOT NULL,
-    solution_code TEXT NOT NULL
+    solution_code TEXT NOT NULL,
+    characters_json TEXT NOT NULL DEFAULT '[]'
 );
 """
 
@@ -140,6 +141,10 @@ def init_db() -> None:
     with _lock, get_conn() as conn:
         conn.executescript(SCHEMA)
     _seed_if_empty()
+    # Всегда перезаливаем капстоны (могли измениться шаги/персонажи)
+    from app.seed_data import reseed_final_projects
+    with get_conn() as conn:
+        reseed_final_projects(conn)
 
 
 def _seed_if_empty() -> None:

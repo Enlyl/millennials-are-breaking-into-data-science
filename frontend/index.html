@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Data Science Course</title>
-<link rel="stylesheet" href="/static/css/style.css?v=2">
+<style>#splash{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:#1a1a2e}#splash .spinner{width:48px;height:48px;border:3px solid #2a2a4a;border-top-color:#7c5cfc;border-radius:50%;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}#splash-msg{color:#888;font-size:1rem;margin-top:1rem;text-align:center}.splash-inner{text-align:center;display:flex;flex-direction:column;align-items:center}</style>
+<link rel="stylesheet" href="/static/css/style.css?v=3">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🚀%3C/text%3E%3C/svg%3E">
 </head>
 <body>
@@ -88,8 +89,20 @@
   </div>
 </div>
 
-<script src="/static/js/sandbox_python.js?v=2"></script>
-<script src="/static/js/sandbox_sql.js?v=2"></script>
-<script src="/static/js/app.js?v=2"></script>
+<!-- Модалка персонажа -->
+<div id="character-modal" style="display:none;" role="dialog" aria-modal="true">
+  <div class="character-modal-card">
+    <button class="character-modal-close">&times;</button>
+    <img class="character-modal-avatar" src="" alt="">
+    <div class="character-modal-name"></div>
+    <div class="character-modal-role"></div>
+    <div class="character-modal-desc"></div>
+  </div>
+</div>
+
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<script defer src="/static/js/sandbox_python.js?v=3"></script>
+<script defer src="/static/js/sandbox_sql.js?v=3"></script>
+<script defer src="/static/js/app.js?v=3"></script>
 </body>
 </html>
